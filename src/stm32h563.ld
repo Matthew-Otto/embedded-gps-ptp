@@ -1,0 +1,54 @@
+/* STM32H563ZIT6U Linker Script */
+
+ENTRY(reset_handler)
+
+/* Memories definition */
+MEMORY
+{
+    FLASH (rx) : ORIGIN = 0x08000000, LENGTH = 2M
+    SRAM (rwx) : ORIGIN = 0x20000000, LENGTH = 640K
+}
+
+/* Define stack top (end of SRAM) */
+_estack = ORIGIN(SRAM) + LENGTH(SRAM);
+
+_Min_Heap_Size  = 0x200; /* required amount of heap  */
+_Min_Stack_Size = 0x400; /* required amount of stack */
+
+SECTIONS
+{
+    /* Vector table */
+    .isr_vector :
+    {
+        . = ALIGN(4);
+        KEEP(*(.isr_vector))
+        . = ALIGN(4);
+    } > FLASH
+
+    .text : {
+        . = ALIGN(4);
+        *(.text*)
+        *(.rodata*)
+        . = ALIGN(4);
+    } > FLASH
+
+    /* Used by the startup to initialize data */
+    _sidata = LOADADDR(.data);
+
+    .data : {
+        _sdata = .;
+        *(.data*)
+        _edata = .;
+    } > SRAM AT > FLASH
+
+    .bss : {
+        _sbss = .;
+        *(.bss*)
+        *(COMMON)
+        _ebss = .;
+    } > SRAM
+
+    .stack (COPY) : {
+        __stack_top = ORIGIN(SRAM) + LENGTH(SRAM) - 4;
+    }
+}
