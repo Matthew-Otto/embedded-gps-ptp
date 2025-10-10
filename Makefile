@@ -71,7 +71,7 @@ $(BIN_DIR):
 	mkdir $@
 
 
-flash: $(TARGET)
+flash: $(BIN)
 	openocd -f interface/stlink-dap.cfg -f target/stm32h5x.cfg \
 	-c "program $(BIN) verify reset exit 0x08000000"
 

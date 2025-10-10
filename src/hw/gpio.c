@@ -20,20 +20,24 @@ void GPIO_clk_en(char port) {
 }
 
 
-void configure_pin(char port, uint16_t pin, uint32_t mode, uint32_t pupd, uint32_t ospeed) {
-    if (port >= 'a' && port <= 'z')
+void configure_pin(GPIO_TypeDef *GPIO_bank, uint16_t pin, uint32_t mode, uint32_t pupd, uint32_t ospeed, uint8_t alternate) {
+    /* if (port >= 'a' && port <= 'z')
         port -= 32;
     if (port < 'A' || port > 'I')
-        return;
+        return; */
 
-    GPIO_TypeDef *GPIO_bank = (GPIO_TypeDef *)(((port - 'A') << 10) + GPIOA_BASE_NS);
-    uint32_t pin_ofst = pin;
-    uint32_t pin_mode_ofst = pin << 1;
+    //GPIO_TypeDef *GPIO_bank = port;
+    uint32_t pin_ofst = 0;
+    while ((pin >> pin_ofst) != 0) pin_ofst++;
+    pin_ofst -= 1;
+    uint32_t pin_mode_ofst = pin_ofst << 1;
+    uint32_t pin_alt_ofst = pin_ofst << 2;
 
     MODIFY_REG(GPIO_bank->MODER, 0x3 << pin_mode_ofst, (mode & GPIO_MODE) << pin_mode_ofst);
     MODIFY_REG(GPIO_bank->OTYPER, 0x1 << pin_ofst, ((mode & GPIO_OUTPUT_TYPE) >> 4U) << pin_ofst);
     MODIFY_REG(GPIO_bank->PUPDR, 0x3 << pin_mode_ofst, pupd << pin_mode_ofst);
     MODIFY_REG(GPIO_bank->OSPEEDR, 0x3 << pin_mode_ofst, ospeed << pin_mode_ofst);
+    MODIFY_REG(GPIO_bank->AFR[pin_ofst >> 3], 0x7 << pin_alt_ofst, alternate << pin_alt_ofst);
 };
 
 
@@ -49,9 +53,9 @@ void GPIO_init() {
     GPIO_clk_en('H');
     GPIO_clk_en('I');
 
-    configure_pin('B', 0, GPIO_MODE_OUTPUT_PP, GPIO_NOPULL, GPIO_SPEED_FREQ_LOW);
-    configure_pin('F', 4, GPIO_MODE_OUTPUT_PP, GPIO_NOPULL, GPIO_SPEED_FREQ_LOW);
-    configure_pin('G', 4, GPIO_MODE_OUTPUT_PP, GPIO_NOPULL, GPIO_SPEED_FREQ_LOW);
+    configure_pin(GPIOB, GPIO_PIN_0, GPIO_MODE_OUTPUT_PP, GPIO_NOPULL, GPIO_SPEED_FREQ_LOW, 0);
+    configure_pin(GPIOF, GPIO_PIN_4, GPIO_MODE_OUTPUT_PP, GPIO_NOPULL, GPIO_SPEED_FREQ_LOW, 0);
+    configure_pin(GPIOG, GPIO_PIN_4, GPIO_MODE_OUTPUT_PP, GPIO_NOPULL, GPIO_SPEED_FREQ_LOW, 0);
 
 
     GPIO_TypeDef *GPIOx = GPIOF;
