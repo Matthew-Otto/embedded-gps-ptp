@@ -1,5 +1,6 @@
 #include "stm32h563xx.h"
 #include "stm32h563xx_gpio.h"
+#include "gpio.h"
 
 #define PIN(bank, num) ((((bank) - 'A') << 8) | (num))
 #define PINBANK(pin) (pin >> 8)

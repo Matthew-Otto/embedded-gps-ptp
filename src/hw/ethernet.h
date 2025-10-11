@@ -11,19 +11,23 @@ typedef struct {
     uint8_t payload[1500];
 } ethernet_frame_t;
 
-typedef struct
-{
-  volatile uint32_t status;            // OWN + flags (receive status / transmit status)
-  volatile uint32_t control;           // buffer sizes, control bits
-  volatile uint32_t buffer1_addr;      // data buffer pointer
-  volatile uint32_t buffer2_next_desc; // buffer2 pointer or next descriptor pointer
-} ETH_DMA_desc_t;
+typedef struct {
+  volatile uint32_t buffer1_addr;
+  volatile uint32_t buffer2_addr;
+  volatile uint32_t TDES2;
+  volatile uint32_t TDES3;
+} ETH_tx_desc_t;
 
-typedef struct
-{
+typedef struct {
+  volatile uint32_t buffer1_addr;
+  volatile uint32_t reserved1;
+  volatile uint32_t buffer2_addr;
+  volatile uint32_t status;
+} ETH_rx_desc_t;
+
+typedef struct {
   uint32_t ts_low;
   uint32_t ts_high;
-
 } ETH_timestamp_t;
 
 void ETH_init();

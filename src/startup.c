@@ -32,13 +32,53 @@ void reset_handler(void) {
     main();
 }
 
+
+
+void hardfault_handler(void){
+    typedef enum {UNKNOWN, STACK_OVERFLOW, STACK_OOB} ERROR;
+    volatile ERROR e = UNKNOWN;
+    uint32_t *stack_ptr;
+    uint32_t lr_value;
+
+    /* Read active stack pointer and LR (EXC_RETURN) */
+    __asm volatile(
+        "TST lr, #4\n"
+        "ITE EQ\n"
+        "MRSEQ %[sp], MSP\n"
+        "MRSNE %[sp], PSP\n"
+        "MOV %[lr], lr\n"
+        : [sp]"=r"(stack_ptr), [lr]"=r"(lr_value)
+        :
+        : "memory"
+    );
+
+    volatile uint32_t r0  = stack_ptr[0];
+    volatile uint32_t r1  = stack_ptr[1];
+    volatile uint32_t r2  = stack_ptr[2];
+    volatile uint32_t r3  = stack_ptr[3];
+    volatile uint32_t r12 = stack_ptr[4];
+    volatile uint32_t lr  = stack_ptr[5];
+    volatile uint32_t pc  = stack_ptr[6];
+    volatile uint32_t psr = stack_ptr[7];
+    volatile uint32_t sp  = (uint32_t)stack_ptr;
+    volatile uint32_t exc_return = lr_value;
+
+    // TODO programatically determine error that caused hardfault
+    //if (!(stack_pointer < 0x20000000 || stack_pointer > 0x20007FFF)) e = STACK_OOB;
+
+    //if (*sp != 0xdeadbeef) e = STACK_OVERFLOW;
+
+    // hardware breakpoint
+    __asm volatile("BKPT #0");
+    while (1);
+}
+
 void default_isr(void) {
     while (1);
 }
 
 // forward declaration of ISRs
 void NMI_handler(void) __attribute__((weak, alias ("default_isr")));
-void hardfault_handler(void) __attribute__((weak, alias ("default_isr")));
 void memmanage_handler(void) __attribute__((weak, alias ("default_isr")));
 void busfault_handler(void) __attribute__((weak, alias ("default_isr")));
 void usagefault_handler(void) __attribute__((weak, alias ("default_isr")));

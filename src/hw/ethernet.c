@@ -11,13 +11,12 @@ static uint8_t MACAddr[6] = {0x00,0x00,0x00,0xE1,0x80,0x00}; // Big Endian
 
 #define BUFFER_SIZE 1524
 
-__attribute__((aligned(32)))
 __attribute__((section(".eth_rx_buffer")))
-volatile static uint8_t eth_rx_buffer[2][BUFFER_SIZE];
-volatile static uint8_t eth_tx_buffer[2][BUFFER_SIZE];
+__attribute__((aligned(32))) volatile static uint8_t eth_rx_buffer[BUFFER_SIZE];
+volatile static uint8_t eth_tx_buffer[BUFFER_SIZE];
 
-volatile static ETH_DMA_desc_t DMA_tx_descriptor;
-volatile static ETH_DMA_desc_t DMA_rx_descriptor;
+__attribute__((aligned(4))) volatile static ETH_tx_desc_t dma_tx_desc;
+__attribute__((aligned(4))) volatile static ETH_rx_desc_t dma_rx_descr;
 
 static ETH_TypeDef *eth = ETH;
 
@@ -34,15 +33,16 @@ void ETH_IO_init(){
 
     // ETH GPIO Configuration
     // PA1     ------> ETH_REF_CLK
-    // PC1     ------> ETH_MDC
     // PA2     ------> ETH_MDIO
+    // PC1     ------> ETH_MDC
     // PA7     ------> ETH_CRS_DV
     // PC4     ------> ETH_RXD0
     // PC5     ------> ETH_RXD1
+    // PG11    ------> ETH_TX_EN
     // PG13    ------> ETH_TXD0
     // PB15    ------> ETH_TXD1
-    // PG11    ------> ETH_TX_EN
 
+    
     configure_pin(GPIOC, RMII_MDC_Pin, GPIO_MODE_AF_PP, GPIO_NOPULL, GPIO_SPEED_FREQ_HIGH, GPIO_AF11_ETH);
     configure_pin(GPIOC, RMII_RXD0_Pin, GPIO_MODE_AF_PP, GPIO_NOPULL, GPIO_SPEED_FREQ_HIGH, GPIO_AF11_ETH);
     configure_pin(GPIOC, RMII_RXD1_Pin, GPIO_MODE_AF_PP, GPIO_NOPULL, GPIO_SPEED_FREQ_HIGH, GPIO_AF11_ETH);
@@ -55,12 +55,31 @@ void ETH_IO_init(){
    
     configure_pin(GPIOG, RMII_TXT_EN_Pin, GPIO_MODE_AF_PP, GPIO_NOPULL, GPIO_SPEED_FREQ_HIGH, GPIO_AF11_ETH);
     configure_pin(GPIOG, RMI_TXD0_Pin, GPIO_MODE_AF_PP, GPIO_NOPULL, GPIO_SPEED_FREQ_HIGH, GPIO_AF11_ETH);
+    
 }
 
 void ETH_HW_init() {
     // Initialize hardware interrupts and timers
 }
 
+
+uint16_t read_PHY_reg(uint8_t phy_addr) {
+    MODIFY_REG(eth->MACMDIOAR, ETH_MACMDIOAR_MOC_RD, 0b11 << 2); // read mode
+    MODIFY_REG(eth->MACMDIOAR, ETH_MACMDIOAR_RDA, (phy_addr & 0x1F) << 16); // reg addr
+    SET_BIT(eth->MACMDIOAR, ETH_MACMDIOAR_MB);
+
+    while (READ_BIT(eth->MACMDIOAR, ETH_MACMDIOAR_MB));
+    return (uint16_t)READ_BIT(eth->MACMDIODR, ETH_MACMDIODR_MD);
+}
+
+void write_PHY_reg(uint8_t phy_addr, uint16_t data) {
+    MODIFY_REG(eth->MACMDIOAR, ETH_MACMDIOAR_MOC_RD, 0b01 << 2); // write mode
+    MODIFY_REG(eth->MACMDIODR, ETH_MACMDIODR_MD, data);
+    MODIFY_REG(eth->MACMDIOAR, ETH_MACMDIOAR_RDA, (phy_addr & 0x1F) << 16); // reg addr
+    SET_BIT(eth->MACMDIOAR, ETH_MACMDIOAR_MB);
+
+    while (READ_BIT(eth->MACMDIOAR, ETH_MACMDIOAR_MB));
+}
 
 void ETH_PHY_init(){
     // Configure physical link parameters
@@ -73,17 +92,33 @@ void ETH_PHY_init(){
     MODIFY_REG(SBS->PMCR, SBS_PMCR_ETH_SEL_PHY, (uint32_t)(SBS_ETH_RMII));
     (void)SBS->PMCR; // dummy read to sync with ETH
 
-    // Ethernet Software reset
-    SET_BIT(eth->DMAMR, ETH_DMAMR_SWR);
-    while (READ_BIT(eth->DMAMR, ETH_DMAMR_SWR) != 0) {};
+    // set MDIO clock
+    MODIFY_REG(eth->MACMDIOAR, ETH_MACMDIOAR_CR, ETH_MACMDIOAR_CR_DIV124);
 
-    // set mdio clock
-    MODIFY_REG(eth->MACMDIOAR, ETH_MACMDIOAR_CR, ETH_MACMDIOAR_CR_DIV124); // BOZO TODO find correct div
+    // put phy in far loopback
+    //write_PHY_reg(17, 0x1<<9);
+    
+    // Read PHY status
+    volatile uint16_t bits = 0;
+    bits = read_PHY_reg(0);
+    bits = read_PHY_reg(1);
+    bits = read_PHY_reg(5);
+    bits = read_PHY_reg(17);
+    bits = read_PHY_reg(28);
+    bits = read_PHY_reg(31);
+    bits = read_PHY_reg(26);
 }
+
 
 
 void ETH_MAC_init(){
     uint32_t cfg;
+
+
+    // Ethernet Software reset
+    SET_BIT(eth->DMAMR, ETH_DMAMR_SWR);
+    while (READ_BIT(eth->DMAMR, ETH_DMAMR_SWR) != 0) {};
+
     //////// Configure MAC ////////
     // configure MAC address
     WRITE_REG(eth->MACA0HR, ((uint32_t)MACAddr[5] << 8 | (uint32_t)MACAddr[4]));
@@ -91,11 +126,14 @@ void ETH_MAC_init(){
                              (uint32_t)MACAddr[1] << 8 | (uint32_t)MACAddr[0]));
 
     // configure IPv4 address
-    WRITE_REG(eth->MACARPAR, 0x01010101);
+    WRITE_REG(eth->MACARPAR, 0x0A000460); // 10.0.4.96
 
     // configure filtering
     // Promiscuous Mode
     WRITE_REG(eth->MACPFR, 0x1);
+
+    // disable crc checking
+    WRITE_REG(eth->MACECR, 0x1<<16);
 
     // interrupts
     // cfg = eth->MACIER register
@@ -113,6 +151,7 @@ void ETH_MAC_init(){
 
 
     //////// Configure DMA ////////
+
     // cfg = eth->DMAMR;
     
     // cfg = eth->DMASBMR
@@ -125,45 +164,48 @@ void ETH_MAC_init(){
 
 
     // TX descriptors
-    DMA_tx_descriptor.status = 0x0;
-    DMA_tx_descriptor.control = 0x0;
-    DMA_tx_descriptor.buffer1_addr = (uint32_t)eth_tx_buffer;
-    DMA_tx_descriptor.buffer2_next_desc = (uint32_t)&DMA_tx_descriptor;
+    dma_tx_desc.buffer1_addr = (uint32_t)&eth_tx_buffer;
+    dma_tx_desc.buffer2_addr = 0;
+    dma_tx_desc.TDES2 = 0x0;
+    dma_tx_desc.TDES3 = 0x1 << 29 | 0x1 << 28;
 
     // Set Transmit Descriptor Ring Length
-    WRITE_REG(eth->DMACTDRLR, 0);
+    WRITE_REG(eth->DMACTDRLR, 1);
     // Set Transmit Descriptor List Address
-    WRITE_REG(eth->DMACTDLAR, (uint32_t)&DMA_tx_descriptor);
+    WRITE_REG(eth->DMACTDLAR, (uint32_t)&dma_tx_desc);
     // Set Transmit Descriptor Tail pointer
-    WRITE_REG(eth->DMACTDTPR, (uint32_t)&DMA_tx_descriptor);
+    WRITE_REG(eth->DMACTDTPR, (uint32_t)&dma_tx_desc);
 
 
     // RX descriptors
-    DMA_rx_descriptor.status = 0x80000000U;
-    DMA_rx_descriptor.control = BUFFER_SIZE & 0x7FF; // buffer size in lower 11 bits;
-    DMA_rx_descriptor.buffer1_addr = (uint32_t)eth_rx_buffer;
-    DMA_rx_descriptor.buffer2_next_desc = (uint32_t)&DMA_rx_descriptor; // self-link
+    dma_rx_descr.buffer1_addr = (uint32_t)&eth_rx_buffer;
+    dma_rx_descr.buffer2_addr = 0;
+    dma_rx_descr.status = 0x81 << 24;
 
     // Set Receive Descriptor Ring Length
-    WRITE_REG(eth->DMACRDRLR, 4);
+    WRITE_REG(eth->DMACRDRLR, 1);
     // Set Receive Descriptor List Address
-    WRITE_REG(eth->DMACRDLAR, (uint32_t)&DMA_rx_descriptor);
+    WRITE_REG(eth->DMACRDLAR, (uint32_t)&dma_rx_descr);
     // Set Receive Descriptor Tail pointer Address
-    WRITE_REG(eth->DMACRDTPR, (uint32_t)&DMA_rx_descriptor);
+    //WRITE_REG(eth->DMACRDTPR, (uint32_t)&dma_rx_descr);
 
     SET_BIT(eth->DMACRCR, ETH_DMACRCR_SR); // start receive
     SET_BIT(eth->DMACTCR, ETH_DMACTCR_ST); // start transmit
 
+    //////// Configure MTL ////////
+    WRITE_REG(eth->MTLRQOMR, 0x7 << 4);
+
     // Enable MAC transmitter and receiver
-    SET_BIT(eth->MACCR, 0x3);
+    SET_BIT(eth->MACCR, 0x2);
+    SET_BIT(eth->MACCR, 0x1);
 }
 
 
 void ETH_init(){
     ETH_IO_init();
     ETH_HW_init();
-    ETH_PHY_init(ETH);
-    ETH_MAC_init(ETH);
+    ETH_PHY_init();
+    ETH_MAC_init();
 }
 
 
@@ -191,20 +233,21 @@ void ETH_send_frame(ethernet_frame_t *frame, uint16_t payload_len){
 
 int eth_receive(uint8_t *out, uint32_t *len)
 {
-    if (DMA_rx_descriptor.status & (1U << 31))
+    WRITE_REG(eth->DMACRDTPR, 0);
+    if (dma_rx_descr.status & (0x1<<31))
         return 0; // still owned by DMA, nothing received yet
 
-    uint32_t frame_len = (DMA_rx_descriptor.status >> 16) & 0x3FFF;
-    memcpy(out, (void *)DMA_rx_descriptor.buffer1_addr, frame_len);
+    uint32_t frame_len = (dma_rx_descr.status >> 16) & 0x3FFF;
+    //memcpy(out, (void *)dma_rx_descr.buffer1_addr, frame_len);
     *len = frame_len;
 
     // Invalidate D-cache here if enabled
 
     // Return ownership to DMA
-    DMA_rx_descriptor.status = (1U << 31);
+    dma_rx_descr.status = (1U << 31);
 
     // Update tail pointer so DMA can reuse descriptor
-    eth->DMACRDTPR = (uint32_t)&DMA_rx_descriptor;
+    eth->DMACRDTPR = (uint32_t)&dma_rx_descr;
 
     return 1;
 }
