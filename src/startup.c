@@ -1,7 +1,8 @@
-// 2nd stage bootloader
-// copies initialized data from flash to ram
-
 #include <stdint.h>
+
+#include "clocks.h"
+#include "ethernet.h"
+#include "gpio.h"
 
 extern uint32_t __stack_top;
 extern uint32_t _sidata;
@@ -10,16 +11,169 @@ extern uint32_t _edata;
 extern uint32_t _sbss;
 extern uint32_t _ebss;
 
-// forward declaration of ISRs
 extern void main(void);
-void reset_handler(void);
-void NMI_handler(void);
-void hardfault_handler(void);
-void memmanage_handler(void);
-void busfault_handler(void);
-void usagefault_handler(void);
-void securefault_handler(void);
 
+void reset_handler(void) {
+    // Copy .data section from FLASH to SRAM
+    uint32_t *src = &_sidata;
+    uint32_t *dst = &_sdata;
+    while (dst < &_edata) *dst++ = *src++;
+
+    // Zero initialize .bss
+    dst = &_sbss;
+    while (dst < &_ebss) *dst++ = 0;
+
+    // initialize system
+    init_sysclk();
+    GPIO_init();
+    ETH_init();
+
+    // jump to main
+    main();
+}
+
+void default_isr(void) {
+    while (1);
+}
+
+// forward declaration of ISRs
+void NMI_handler(void) __attribute__((weak, alias ("default_isr")));
+void hardfault_handler(void) __attribute__((weak, alias ("default_isr")));
+void memmanage_handler(void) __attribute__((weak, alias ("default_isr")));
+void busfault_handler(void) __attribute__((weak, alias ("default_isr")));
+void usagefault_handler(void) __attribute__((weak, alias ("default_isr")));
+void securefault_handler(void) __attribute__((weak, alias ("default_isr")));
+
+extern void SVC_handler(void) __attribute__((weak, alias ("default_isr")));
+extern void pendSV_handler(void) __attribute__((weak, alias ("default_isr")));
+extern void systick_handler(void) __attribute__((weak, alias ("default_isr")));
+extern void WWDG_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void PVD_AVD_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void RTC_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void RTC_S_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void TAMP_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void RAMCFG_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void FLASH_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void FLASH_S_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void GTZC_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void RCC_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void RCC_S_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void EXTI0_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void EXTI1_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void EXTI2_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void EXTI3_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void EXTI4_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void EXTI5_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void EXTI6_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void EXTI7_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void EXTI8_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void EXTI9_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void EXTI10_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void EXTI11_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void EXTI12_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void EXTI13_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void EXTI14_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void EXTI15_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void GPDMA1_Channel0_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void GPDMA1_Channel1_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void GPDMA1_Channel2_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void GPDMA1_Channel3_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void GPDMA1_Channel4_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void GPDMA1_Channel5_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void GPDMA1_Channel6_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void GPDMA1_Channel7_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void IWDG_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void ADC1_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void DAC1_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void FDCAN1_IT0_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void FDCAN1_IT1_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void TIM1_BRK_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void TIM1_UP_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void TIM1_TRG_COM_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void TIM1_CC_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void TIM2_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void TIM3_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void TIM4_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void TIM5_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void TIM6_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void TIM7_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void I2C1_EV_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void I2C1_ER_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void I2C2_EV_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void I2C2_ER_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void SPI1_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void SPI2_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void SPI3_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void USART1_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void USART2_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void USART3_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void UART4_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void UART5_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void LPUART1_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void LPTIM1_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void TIM8_BRK_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void TIM8_UP_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void TIM8_TRG_COM_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void TIM8_CC_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void ADC2_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void LPTIM2_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void TIM15_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void TIM16_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void TIM17_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void USB_DRD_FS_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void CRS_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void UCPD1_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void FMC_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void OCTOSPI1_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void SDMMC1_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void I2C3_EV_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void I2C3_ER_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void SPI4_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void SPI5_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void SPI6_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void USART6_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void USART10_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void USART11_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void SAI1_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void SAI2_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void GPDMA2_Channel0_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void GPDMA2_Channel1_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void GPDMA2_Channel2_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void GPDMA2_Channel3_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void GPDMA2_Channel4_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void GPDMA2_Channel5_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void GPDMA2_Channel6_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void GPDMA2_Channel7_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void UART7_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void UART8_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void UART9_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void UART12_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void SDMMC2_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void FPU_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void ICACHE_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void DCACHE1_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void ETH_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void ETH_WKUP_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void DCMI_PSSI_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void FDCAN2_IT0_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void FDCAN2_IT1_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void CORDIC_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void FMAC_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void DTS_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void RNG_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void HASH_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void CEC_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void TIM12_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void TIM13_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void TIM14_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void I3C1_EV_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void I3C1_ER_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void I2C4_EV_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void I2C4_ER_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void LPTIM3_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void LPTIM4_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void LPTIM5_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
+extern void LPTIM6_IRQHandler(void) __attribute__((weak, alias ("default_isr")));
 
 /* Vector table */
 __attribute__((section(".isr_vector")))
@@ -35,9 +189,6 @@ void (* const vector_table[])(void) = {
     0,
     0,
     0,
-
-    // BOZO put fault handlers and stuff here, real ISRs go in a separate file
-    /*
     SVC_handler,
     0,
     0,
@@ -155,7 +306,7 @@ void (* const vector_table[])(void) = {
     FDCAN2_IT0_IRQHandler,
     FDCAN2_IT1_IRQHandler,
     CORDIC_IRQHandler,
- 	.word   FMAC_IRQHandler,
+ 	FMAC_IRQHandler,
     DTS_IRQHandler,
     RNG_IRQHandler,
     0,
@@ -173,33 +324,5 @@ void (* const vector_table[])(void) = {
     LPTIM3_IRQHandler,
     LPTIM4_IRQHandler,
     LPTIM5_IRQHandler,
-    LPTIM6_IRQHandler,
-    */
+    LPTIM6_IRQHandler
 };
-
-void reset_handler(void) {
-    // Copy .data section from FLASH to SRAM
-    uint32_t *src = &_sidata;
-    uint32_t *dst = &_sdata;
-    while (dst < &_edata) *dst++ = *src++;
-
-    // Zero initialize .bss
-    dst = &_sbss;
-    while (dst < &_ebss) *dst++ = 0;
-
-    // TODO initialize system here
-
-    // jump to main
-    main();
-}
-
-void NMI_handler(void)         __attribute__((weak, alias("default_isr")));
-void hardfault_handler(void)   __attribute__((weak, alias("default_isr")));
-void memmanage_handler(void)   __attribute__((weak, alias("default_isr")));
-void busfault_handler(void)    __attribute__((weak, alias("default_isr")));
-void usagefault_handler(void)  __attribute__((weak, alias("default_isr")));
-void securefault_handler(void) __attribute__((weak, alias("default_isr")));
-
-void default_isr(void) {
-    while (1);
-}

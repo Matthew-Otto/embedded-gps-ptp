@@ -12,9 +12,6 @@ MEMORY
 /* Define stack top (end of SRAM) */
 _estack = ORIGIN(SRAM) + LENGTH(SRAM);
 
-_Min_Heap_Size  = 0x200; /* required amount of heap  */
-_Min_Stack_Size = 0x400; /* required amount of stack */
-
 SECTIONS
 {
     /* Vector table */
@@ -47,6 +44,11 @@ SECTIONS
         *(COMMON)
         _ebss = .;
     } > SRAM
+
+    .eth_rx_buffer (NOLOAD) : ALIGN(4) {
+        KEEP(*(.eth_rx_buffer))
+    } > SRAM
+
 
     .stack (COPY) : {
         __stack_top = ORIGIN(SRAM) + LENGTH(SRAM) - 4;

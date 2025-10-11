@@ -15,18 +15,11 @@ void GPIO_clk_en(char port) {
 
     uint32_t reg_addr = 0x1UL << (port - 'A');
     SET_BIT(RCC->AHB2ENR, reg_addr);
-    volatile uint32_t t = READ_BIT(RCC->AHB2ENR, reg_addr);
-    (void)t;
+    (void)READ_BIT(RCC->AHB2ENR, reg_addr);
 }
 
 
 void configure_pin(GPIO_TypeDef *GPIO_bank, uint16_t pin, uint32_t mode, uint32_t pupd, uint32_t ospeed, uint8_t alternate) {
-    /* if (port >= 'a' && port <= 'z')
-        port -= 32;
-    if (port < 'A' || port > 'I')
-        return; */
-
-    //GPIO_TypeDef *GPIO_bank = port;
     uint32_t pin_ofst = 0;
     while ((pin >> pin_ofst) != 0) pin_ofst++;
     pin_ofst -= 1;
@@ -65,5 +58,5 @@ void GPIO_init() {
     GPIOx->BSRR = (uint32_t)GPIO_PIN_4;
 
     GPIOx = GPIOB;
-    GPIOx->BSRR = (uint32_t)GPIO_PIN_0;
+    //GPIOx->BSRR = (uint32_t)GPIO_PIN_0;
 }
