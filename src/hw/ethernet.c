@@ -7,18 +7,26 @@
 #include "gpio.h"
 #include "ethernet.h"
 
-static uint8_t MACAddr[6] = {0x00,0x00,0x00,0xE1,0x80,0x00}; // Big Endian
+static uint8_t MACAddr[6] = {0x00,0x80,0xE1,0x00,0x00,0x00};
+static uint8_t IPv4_ADDR[4] = {10, 1, 123, 1};
 
 #define BUFFER_SIZE 1524
+#define RX_DSC_CNT 4
+#define TX_DSC_CNT 4
 
 __attribute__((section(".eth_rx_buffer")))
-__attribute__((aligned(32))) volatile static uint8_t eth_rx_buffer[BUFFER_SIZE];
-volatile static uint8_t eth_tx_buffer[BUFFER_SIZE];
+volatile static uint8_t eth_rx_buffer[RX_DSC_CNT][BUFFER_SIZE];
+__attribute__((section(".eth_tx_buffer")))
+volatile static uint8_t eth_tx_buffer[TX_DSC_CNT][BUFFER_SIZE];
 
-__attribute__((aligned(4))) volatile static ETH_tx_desc_t dma_tx_desc;
-__attribute__((aligned(4))) volatile static ETH_rx_desc_t dma_rx_descr;
+volatile static ETH_rx_desc_u dma_rx_desc[RX_DSC_CNT];
+volatile static ETH_tx_desc_t dma_tx_desc[TX_DSC_CNT];
+static uint32_t current_rx_desc_idx = 0;
+static uint32_t current_tx_desc_idx = 0;
+
 
 static ETH_TypeDef *eth = ETH;
+
 
 void ETH_IO_init(){
     // Configures bus / IO pins connected to Ethernet PHY
@@ -94,39 +102,26 @@ void ETH_PHY_init(){
 
     // set MDIO clock
     MODIFY_REG(eth->MACMDIOAR, ETH_MACMDIOAR_CR, ETH_MACMDIOAR_CR_DIV124);
-
-    // put phy in far loopback
-    //write_PHY_reg(17, 0x1<<9);
-    
-    // Read PHY status
-    volatile uint16_t bits = 0;
-    bits = read_PHY_reg(0);
-    bits = read_PHY_reg(1);
-    bits = read_PHY_reg(5);
-    bits = read_PHY_reg(17);
-    bits = read_PHY_reg(28);
-    bits = read_PHY_reg(31);
-    bits = read_PHY_reg(26);
 }
 
 
 
 void ETH_MAC_init(){
     uint32_t cfg;
-
-
     // Ethernet Software reset
     SET_BIT(eth->DMAMR, ETH_DMAMR_SWR);
     while (READ_BIT(eth->DMAMR, ETH_DMAMR_SWR) != 0) {};
 
     //////// Configure MAC ////////
     // configure MAC address
-    WRITE_REG(eth->MACA0HR, ((uint32_t)MACAddr[5] << 8 | (uint32_t)MACAddr[4]));
-    WRITE_REG(eth->MACA0LR, ((uint32_t)MACAddr[3] << 24 | (uint32_t)MACAddr[2] << 16 | 
-                             (uint32_t)MACAddr[1] << 8 | (uint32_t)MACAddr[0]));
+    WRITE_REG(eth->MACA0HR, ((uint32_t)MACAddr[0] << 8 | (uint32_t)MACAddr[1]));
+    WRITE_REG(eth->MACA0LR, ((uint32_t)MACAddr[2] << 24 | (uint32_t)MACAddr[3] << 16 | 
+                             (uint32_t)MACAddr[4] << 8 | (uint32_t)MACAddr[5]));
 
     // configure IPv4 address
-    WRITE_REG(eth->MACARPAR, 0x0A000460); // 10.0.4.96
+    WRITE_REG(eth->MACARPAR, (IPv4_ADDR[0]<<24 | IPv4_ADDR[1]<<16 | IPv4_ADDR[2]<<8 | IPv4_ADDR[3]));
+
+    volatile int x = READ_REG(eth->MACA0HR);
 
     // configure filtering
     // Promiscuous Mode
@@ -149,55 +144,43 @@ void ETH_MAC_init(){
     cfg |= 0x1 << 13; // full duplex
     WRITE_REG(eth->MACCR, cfg);
 
-
-    //////// Configure DMA ////////
-
-    // cfg = eth->DMAMR;
-    
-    // cfg = eth->DMASBMR
-
-    // set DSL to 64 bits
-    MODIFY_REG(eth->DMACCR, ETH_DMACCR_DSL, ETH_DMACCR_DSL_64BIT);
-
-    // Set Receive Buffers Length
-    MODIFY_REG(eth->DMACRCR, ETH_DMACRCR_RBSZ, BUFFER_SIZE << 1);
+    //////// Configure MTL ////////
+    WRITE_REG(eth->MTLRQOMR, 0x7 << 4);
+}
 
 
+void ETH_DMA_init(void) {
     // TX descriptors
-    dma_tx_desc.buffer1_addr = (uint32_t)&eth_tx_buffer;
-    dma_tx_desc.buffer2_addr = 0;
-    dma_tx_desc.TDES2 = 0x0;
-    dma_tx_desc.TDES3 = 0x1 << 29 | 0x1 << 28;
-
+    for (int i = 0; i < TX_DSC_CNT; i++) {
+        dma_tx_desc[i].buffer1_addr = (uint32_t)eth_tx_buffer[i];
+        dma_tx_desc[i].buffer2_addr = 0;
+        dma_tx_desc[i].TDES2 = 0x0;
+        dma_tx_desc[i].TDES3 = 0x1 << 29 | 0x1 << 28;
+    }
     // Set Transmit Descriptor Ring Length
-    WRITE_REG(eth->DMACTDRLR, 1);
+    WRITE_REG(eth->DMACTDRLR, TX_DSC_CNT);
     // Set Transmit Descriptor List Address
-    WRITE_REG(eth->DMACTDLAR, (uint32_t)&dma_tx_desc);
+    WRITE_REG(eth->DMACTDLAR, (uint32_t)&dma_tx_desc[0]);
     // Set Transmit Descriptor Tail pointer
-    WRITE_REG(eth->DMACTDTPR, (uint32_t)&dma_tx_desc);
+    WRITE_REG(eth->DMACTDTPR, (uint32_t)&dma_tx_desc[TX_DSC_CNT-1]);
 
 
     // RX descriptors
-    dma_rx_descr.buffer1_addr = (uint32_t)&eth_rx_buffer;
-    dma_rx_descr.buffer2_addr = 0;
-    dma_rx_descr.status = 0x81 << 24;
-
+    for (int i = 0; i < RX_DSC_CNT; i++) {
+        ETH_rx_rd_desc_t *desc  = &dma_rx_desc[i].rd;
+        desc->buffer1_addr = (uint32_t)eth_rx_buffer[i];
+        desc->buffer2_addr = 0;
+        desc->status = 0x81;
+    }
+    // Set Receive Buffers Length
+    MODIFY_REG(eth->DMACRCR, ETH_DMACRCR_RBSZ, BUFFER_SIZE << 1);
     // Set Receive Descriptor Ring Length
-    WRITE_REG(eth->DMACRDRLR, 1);
+    WRITE_REG(eth->DMACRDRLR, RX_DSC_CNT-1);
     // Set Receive Descriptor List Address
-    WRITE_REG(eth->DMACRDLAR, (uint32_t)&dma_rx_descr);
+    WRITE_REG(eth->DMACRDLAR, (uint32_t)&dma_rx_desc[0]);
     // Set Receive Descriptor Tail pointer Address
-    //WRITE_REG(eth->DMACRDTPR, (uint32_t)&dma_rx_descr);
+    WRITE_REG(eth->DMACRDTPR, (uint32_t)&dma_rx_desc[RX_DSC_CNT-1]);
 
-    SET_BIT(eth->DMACRCR, ETH_DMACRCR_SR); // start receive
-    SET_BIT(eth->DMACTCR, ETH_DMACTCR_ST); // start transmit
-
-    //////// Configure MTL ////////
-    WRITE_REG(eth->MTLRQOMR, 0x7 << 4);
-
-    // Enable MAC transmitter and receiver
-    SET_BIT(eth->MACCR, 0x2);
-    SET_BIT(eth->MACCR, 0x1);
 }
 
 
@@ -206,6 +189,14 @@ void ETH_init(){
     ETH_HW_init();
     ETH_PHY_init();
     ETH_MAC_init();
+    ETH_DMA_init();
+
+    // Start DMA transmit and receive
+    SET_BIT(eth->DMACTCR, ETH_DMACTCR_ST);
+    SET_BIT(eth->DMACRCR, ETH_DMACRCR_SR);
+
+    // Enable MAC transmitter and receiver
+    SET_BIT(eth->MACCR, 0x3);
 }
 
 
@@ -231,23 +222,27 @@ void ETH_send_frame(ethernet_frame_t *frame, uint16_t payload_len){
 
 }
 
-int eth_receive(uint8_t *out, uint32_t *len)
-{
-    WRITE_REG(eth->DMACRDTPR, 0);
-    if (dma_rx_descr.status & (0x1<<31))
-        return 0; // still owned by DMA, nothing received yet
+// Checks for valid RX descriptors
+// If one exists, process it before resetting DMA descriptor
+int ETH_receive_frame(){
+    volatile ETH_rx_rd_desc_t *rd_desc = &dma_rx_desc[current_rx_desc_idx].rd;
+    volatile ETH_rx_wb_desc_t *wb_desc = &dma_rx_desc[current_rx_desc_idx].wb;
 
-    uint32_t frame_len = (dma_rx_descr.status >> 16) & 0x3FFF;
-    //memcpy(out, (void *)dma_rx_descr.buffer1_addr, frame_len);
-    *len = frame_len;
+    // check that DMA has released this descriptor
+    if (wb_desc->status & (0x1<<15))
+        return -1;
 
-    // Invalidate D-cache here if enabled
+    // TODO process frame here
 
-    // Return ownership to DMA
-    dma_rx_descr.status = (1U << 31);
 
-    // Update tail pointer so DMA can reuse descriptor
-    eth->DMACRDTPR = (uint32_t)&dma_rx_descr;
+    // Configure descriptor for receive and release back to DMA
+    rd_desc->buffer1_addr = (uint32_t)eth_rx_buffer[current_rx_desc_idx];
+    rd_desc->status = 0x81; // set own bit and buffer1_valid
+    // Update current RX descriptor idx
+    current_rx_desc_idx = (current_rx_desc_idx + 1) % RX_DSC_CNT;
+    // Update RX descriptor tail pointer;
+    WRITE_REG(eth->DMACRDTPR, (uint32_t)&dma_rx_desc[current_rx_desc_idx]);
 
-    return 1;
+    return 0;
 }
+

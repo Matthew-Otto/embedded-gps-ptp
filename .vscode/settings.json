@@ -1,7 +1,0 @@
-{
-    "files.associations": {
-        "gpio.h": "c",
-        "stm32h563xx_gpio.h": "c",
-        "cstdint": "c"
-    }
-}

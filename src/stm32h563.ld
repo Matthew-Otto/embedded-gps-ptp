@@ -48,6 +48,10 @@ SECTIONS
     .eth_rx_buffer (NOLOAD) : ALIGN(4) {
         KEEP(*(.eth_rx_buffer))
     } > SRAM
+    
+    .eth_tx_buffer (NOLOAD) : ALIGN(4) {
+        KEEP(*(.eth_rx_buffer))
+    } > SRAM
 
 
     .stack (COPY) : {
