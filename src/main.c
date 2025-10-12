@@ -23,9 +23,6 @@ int main(void) {
     //BSP_LED_Init(LED_YELLOW);
     //BSP_LED_On(LED_YELLOW);
 
-    uint32_t len;
-    volatile uint32_t datac;
-
     GPIO_TypeDef *GPIOx = GPIOB;
     ETH_TypeDef *eth = ETH;
     while(1) {
@@ -35,9 +32,13 @@ int main(void) {
         GPIOx->BSRR = 0x1 << 16;
         for (volatile int i = 0; i < 1000000; ++i);
 
-        datac = *(volatile uint32_t *)((uint32_t)ETH + 0x7c4);
-
         ETH_receive_frame();
+
+        // send frame on button press
+        if (((GPIO_TypeDef *)GPIOC)->IDR & GPIO_PIN_13) {
+            ((GPIO_TypeDef *)GPIOF)->BSRR = (uint32_t)(GPIO_PIN_4<<16);
+            ETH_send_frame();
+        }
     }
 
     return 0;

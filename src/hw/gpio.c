@@ -21,18 +21,32 @@ void GPIO_clk_en(char port) {
 
 
 void configure_pin(GPIO_TypeDef *GPIO_bank, uint16_t pin, uint32_t mode, uint32_t pupd, uint32_t ospeed, uint8_t alternate) {
-    uint32_t pin_ofst = 0;
-    while ((pin >> pin_ofst) != 0) pin_ofst++;
-    pin_ofst -= 1;
-    uint32_t pin_mode_ofst = pin_ofst << 1;
-    uint32_t pin_alt_ofst = pin_ofst << 2;
+    uint32_t pin_num = 0;
+    while ((pin >> pin_num) != 0) pin_num++;
+    pin_num -= 1;
+    uint32_t pin_mode_ofst = pin_num << 1;
+    uint32_t pin_alt_ofst = (pin_num & 0x7) << 2;
 
     MODIFY_REG(GPIO_bank->MODER, 0x3 << pin_mode_ofst, (mode & GPIO_MODE) << pin_mode_ofst);
-    MODIFY_REG(GPIO_bank->OTYPER, 0x1 << pin_ofst, ((mode & GPIO_OUTPUT_TYPE) >> 4U) << pin_ofst);
+    MODIFY_REG(GPIO_bank->OTYPER, 0x1 << pin_num, ((mode & GPIO_OUTPUT_TYPE) >> 4U) << pin_num);
     MODIFY_REG(GPIO_bank->PUPDR, 0x3 << pin_mode_ofst, pupd << pin_mode_ofst);
     MODIFY_REG(GPIO_bank->OSPEEDR, 0x3 << pin_mode_ofst, ospeed << pin_mode_ofst);
-    MODIFY_REG(GPIO_bank->AFR[pin_ofst >> 3], 0x7 << pin_alt_ofst, alternate << pin_alt_ofst);
+    MODIFY_REG(GPIO_bank->AFR[pin_num >> 3], 0xF << pin_alt_ofst, alternate << pin_alt_ofst);
 };
+
+void configure_button() {
+    GPIO_TypeDef *GPIO_bank = GPIOC;
+    uint16_t pin = GPIO_PIN_13;
+    uint32_t pin_num = 0;
+    while ((pin >> pin_num) != 0) pin_num++;
+    pin_num -= 1;
+    uint32_t pin_mode_ofst = pin_num << 1;
+
+    MODIFY_REG(GPIO_bank->MODER, 0x3 << pin_mode_ofst, (GPIO_MODE_INPUT & GPIO_MODE) << pin_mode_ofst);
+    MODIFY_REG(GPIO_bank->OTYPER, 0x1 << pin_num, ((GPIO_MODE_INPUT & GPIO_OUTPUT_TYPE) >> 4U) << pin_num);
+    MODIFY_REG(GPIO_bank->PUPDR, 0x3 << pin_mode_ofst, GPIO_PULLDOWN << pin_mode_ofst);
+    MODIFY_REG(GPIO_bank->OSPEEDR, 0x3 << pin_mode_ofst, GPIO_SPEED_FREQ_HIGH << pin_mode_ofst);
+}
 
 
 void GPIO_init() {
@@ -51,6 +65,7 @@ void GPIO_init() {
     configure_pin(GPIOF, GPIO_PIN_4, GPIO_MODE_OUTPUT_PP, GPIO_NOPULL, GPIO_SPEED_FREQ_LOW, 0);
     configure_pin(GPIOG, GPIO_PIN_4, GPIO_MODE_OUTPUT_PP, GPIO_NOPULL, GPIO_SPEED_FREQ_LOW, 0);
 
+    configure_button();
 
     GPIO_TypeDef *GPIOx = GPIOF;
     GPIOx->BSRR = (uint32_t)GPIO_PIN_4;

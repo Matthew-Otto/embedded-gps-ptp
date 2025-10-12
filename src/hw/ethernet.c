@@ -20,7 +20,7 @@ __attribute__((section(".eth_tx_buffer")))
 volatile static uint8_t eth_tx_buffer[TX_DSC_CNT][BUFFER_SIZE];
 
 volatile static ETH_rx_desc_u dma_rx_desc[RX_DSC_CNT];
-volatile static ETH_tx_desc_t dma_tx_desc[TX_DSC_CNT];
+volatile static ETH_tx_desc_u dma_tx_desc[TX_DSC_CNT];
 static uint32_t current_rx_desc_idx = 0;
 static uint32_t current_tx_desc_idx = 0;
 
@@ -50,7 +50,6 @@ void ETH_IO_init(){
     // PG13    ------> ETH_TXD0
     // PB15    ------> ETH_TXD1
 
-    
     configure_pin(GPIOC, RMII_MDC_Pin, GPIO_MODE_AF_PP, GPIO_NOPULL, GPIO_SPEED_FREQ_HIGH, GPIO_AF11_ETH);
     configure_pin(GPIOC, RMII_RXD0_Pin, GPIO_MODE_AF_PP, GPIO_NOPULL, GPIO_SPEED_FREQ_HIGH, GPIO_AF11_ETH);
     configure_pin(GPIOC, RMII_RXD1_Pin, GPIO_MODE_AF_PP, GPIO_NOPULL, GPIO_SPEED_FREQ_HIGH, GPIO_AF11_ETH);
@@ -59,11 +58,10 @@ void ETH_IO_init(){
     configure_pin(GPIOA, RMII_MDIO_Pin, GPIO_MODE_AF_PP, GPIO_NOPULL, GPIO_SPEED_FREQ_HIGH, GPIO_AF11_ETH);
     configure_pin(GPIOA, RMII_CRS_DV_Pin, GPIO_MODE_AF_PP, GPIO_NOPULL, GPIO_SPEED_FREQ_HIGH, GPIO_AF11_ETH);
 
-    configure_pin(RMII_TXD1_GPIO_Port, RMII_TXD1_Pin, GPIO_MODE_AF_PP, GPIO_NOPULL, GPIO_SPEED_FREQ_HIGH, GPIO_AF11_ETH);
-   
+    configure_pin(GPIOB, RMII_TXD1_Pin, GPIO_MODE_AF_PP, GPIO_NOPULL, GPIO_SPEED_FREQ_HIGH, GPIO_AF11_ETH);
+
     configure_pin(GPIOG, RMII_TXT_EN_Pin, GPIO_MODE_AF_PP, GPIO_NOPULL, GPIO_SPEED_FREQ_HIGH, GPIO_AF11_ETH);
     configure_pin(GPIOG, RMI_TXD0_Pin, GPIO_MODE_AF_PP, GPIO_NOPULL, GPIO_SPEED_FREQ_HIGH, GPIO_AF11_ETH);
-    
 }
 
 void ETH_HW_init() {
@@ -90,7 +88,7 @@ void write_PHY_reg(uint8_t phy_addr, uint16_t data) {
 }
 
 void ETH_PHY_init(){
-    // Configure physical link parameters
+    // Configure physical link parameters to LAN8742A-CZ-TR
 
     // enable SBS clock
     SET_BIT(RCC->APB3ENR, RCC_APB3ENR_SBSEN);
@@ -102,6 +100,17 @@ void ETH_PHY_init(){
 
     // set MDIO clock
     MODIFY_REG(eth->MACMDIOAR, ETH_MACMDIOAR_CR, ETH_MACMDIOAR_CR_DIV124);
+
+
+    // Read PHY status (get link speed)
+    volatile uint16_t scsr = read_PHY_reg(31);
+    while (!(scsr & (0x1 << 12))) {
+        scsr = read_PHY_reg(31);
+    };
+    volatile uint8_t speed = (scsr >> 2) & 0x7;
+
+    volatile int x = 7;
+
 }
 
 
@@ -114,14 +123,12 @@ void ETH_MAC_init(){
 
     //////// Configure MAC ////////
     // configure MAC address
-    WRITE_REG(eth->MACA0HR, ((uint32_t)MACAddr[0] << 8 | (uint32_t)MACAddr[1]));
-    WRITE_REG(eth->MACA0LR, ((uint32_t)MACAddr[2] << 24 | (uint32_t)MACAddr[3] << 16 | 
-                             (uint32_t)MACAddr[4] << 8 | (uint32_t)MACAddr[5]));
+    WRITE_REG(eth->MACA0HR, ((uint32_t)MACAddr[5] << 8 | (uint32_t)MACAddr[4]));
+    WRITE_REG(eth->MACA0LR, ((uint32_t)MACAddr[3] << 24 | (uint32_t)MACAddr[2] << 16 | 
+                             (uint32_t)MACAddr[1] << 8 | (uint32_t)MACAddr[0]));
 
     // configure IPv4 address
     WRITE_REG(eth->MACARPAR, (IPv4_ADDR[0]<<24 | IPv4_ADDR[1]<<16 | IPv4_ADDR[2]<<8 | IPv4_ADDR[3]));
-
-    volatile int x = READ_REG(eth->MACA0HR);
 
     // configure filtering
     // Promiscuous Mode
@@ -136,7 +143,7 @@ void ETH_MAC_init(){
     // operating mode config
     cfg = eth->MACCR;
     cfg |= 0x1 << 31; // ARP offloading
-    //cfg |= 0b010 << 28; // automatic source MAC address insertion
+    cfg |= 0b011 << 28; // automatic source MAC address replacement
     cfg |= 0x1 << 27; // checksum offload
     cfg |= 0x1 << 21; // CRC stripping for Type packets
     cfg |= 0x1 << 20; // automatic pad/crc stripping
@@ -145,29 +152,21 @@ void ETH_MAC_init(){
     WRITE_REG(eth->MACCR, cfg);
 
     //////// Configure MTL ////////
-    WRITE_REG(eth->MTLRQOMR, 0x7 << 4);
+    WRITE_REG(eth->MTLRQOMR, 0x7 << 4); // configure receive MTL
+    WRITE_REG(eth->MTLTQOMR, 0x2 << 2); // configure transmit MTL
 }
 
 
 void ETH_DMA_init(void) {
     // TX descriptors
-    for (int i = 0; i < TX_DSC_CNT; i++) {
-        dma_tx_desc[i].buffer1_addr = (uint32_t)eth_tx_buffer[i];
-        dma_tx_desc[i].buffer2_addr = 0;
-        dma_tx_desc[i].TDES2 = 0x0;
-        dma_tx_desc[i].TDES3 = 0x1 << 29 | 0x1 << 28;
-    }
     // Set Transmit Descriptor Ring Length
-    WRITE_REG(eth->DMACTDRLR, TX_DSC_CNT);
+    WRITE_REG(eth->DMACTDRLR, TX_DSC_CNT-1);
     // Set Transmit Descriptor List Address
     WRITE_REG(eth->DMACTDLAR, (uint32_t)&dma_tx_desc[0]);
-    // Set Transmit Descriptor Tail pointer
-    WRITE_REG(eth->DMACTDTPR, (uint32_t)&dma_tx_desc[TX_DSC_CNT-1]);
-
 
     // RX descriptors
     for (int i = 0; i < RX_DSC_CNT; i++) {
-        ETH_rx_rd_desc_t *desc  = &dma_rx_desc[i].rd;
+        ETH_rx_rd_desc_t *desc = &dma_rx_desc[i].rd;
         desc->buffer1_addr = (uint32_t)eth_rx_buffer[i];
         desc->buffer2_addr = 0;
         desc->status = 0x81;
@@ -180,7 +179,6 @@ void ETH_DMA_init(void) {
     WRITE_REG(eth->DMACRDLAR, (uint32_t)&dma_rx_desc[0]);
     // Set Receive Descriptor Tail pointer Address
     WRITE_REG(eth->DMACRDTPR, (uint32_t)&dma_rx_desc[RX_DSC_CNT-1]);
-
 }
 
 
@@ -203,23 +201,61 @@ void ETH_init(){
 
 void ETH_construct_frame(ethernet_frame_t *frame, uint8_t *dest_mac, uint8_t *src_mac, uint16_t eth_type, uint8_t *payload, uint16_t payload_len){
     memcpy(frame->dest_mac, dest_mac, 6);
-    memcpy(frame->src_mac, src_mac, 6);
+    //memcpy(frame->src_mac, src_mac, 6);
     frame->eth_type = eth_type;
     memcpy(frame->payload, payload, payload_len);
 }
 
-void ETH_send_frame(ethernet_frame_t *frame, uint16_t payload_len){
+void ETH_send_frame(){
     // Send an Ethernet frame using DMA.
 
-    //ETH_buffer_t tx_buffer;
+    // TODO check for free descriptor
 
-    //ETH_construct_frame(&frame);
+    ETH_tx_rd_desc_t *desc = &dma_tx_desc[current_tx_desc_idx].rd;
+    ETH_tx_wb_desc_t *wb_desc = &dma_tx_desc[current_tx_desc_idx].wb;
 
-    //tx_buffer.data = (uint8_t*)&frame;
-    //tx_buffer.len = 14 + payload_len;
-    //tx_buffer.next = NULL;
-    //tx_config.buffer = &tx_buffer;
+    uint8_t *buffer = eth_tx_buffer[current_tx_desc_idx];
+    uint16_t length = 6;
+    uint8_t data[6] = {0xa,0xb,0xc,0xd,0xe,0xf};
+    uint8_t dest_mac[6] = {0xFF,0xFF,0xFF,0xFF,0xFF,0xFF};
+    uint8_t src_mac[6] = {0x0,0xFF,0xa,0x5,0xFF,0x0};
 
+    for (int i = 0; i < 6; i++) {
+        buffer[i] = dest_mac[i];
+        buffer[i+6] = src_mac[i];
+        buffer[i+12] = data[i];
+    }
+    
+    //ETH_construct_frame(&eth_tx_buffer[current_tx_desc_idx], dest_mac, src_mac, 0x8000, data, length);
+
+    desc->buffer1_addr = (uint32_t)&eth_tx_buffer[current_tx_desc_idx];
+    //desc->buffer1_len = length & 0x3FFF; BOZO
+    desc->buffer1_len = 109 & 0x3FFF;
+    desc->buffer2_len = 0x1 << 14; // enable timestamp
+    desc->ctrl = 0;
+    desc->ctrl |= 0x1 << 29 | 0x1 << 28; // first and last descriptor
+    desc->ctrl |= 0b10 << 23; // src addr insertion
+    desc->ctrl |= 0x1 << 31; // set own bit
+
+    // Update current RX descriptor idx
+    current_tx_desc_idx = (current_tx_desc_idx + 1) % TX_DSC_CNT;
+    // Update RX descriptor tail pointer;
+    WRITE_REG(eth->DMACTDTPR, (uint32_t)&dma_tx_desc[current_tx_desc_idx]);
+    
+    /*
+    WRITE_REG(eth->DMACTDTPR, 0);
+    y = READ_REG(eth->MTLTQDR); */
+
+    // check status
+    while (wb_desc->status & (0x1 << 31));
+    volatile uint32_t x = READ_REG(eth->DMACSR);
+    volatile uint32_t y = READ_REG(eth->MTLTQDR);
+    volatile uint32_t z = READ_REG(eth->MTLTQUR);
+    
+    volatile int pp = 7;
+    
+    y = READ_REG(eth->MTLTQDR);
+    pp = 7;
 }
 
 // Checks for valid RX descriptors
@@ -233,7 +269,6 @@ int ETH_receive_frame(){
         return -1;
 
     // TODO process frame here
-
 
     // Configure descriptor for receive and release back to DMA
     rd_desc->buffer1_addr = (uint32_t)eth_rx_buffer[current_rx_desc_idx];
