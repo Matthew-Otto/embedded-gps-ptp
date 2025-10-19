@@ -15,7 +15,8 @@ Bare-metal implementation (using CMSIS register descriptions) written for the ST
 
 ### Ethernet Notes
 
-How does DMA work?
+The application sends data via Ethernet by assigning the address of an ethernet frame in memory to a DMA descriptor and triggering a transmission by updating the descriptor ring tail pointer.
+To receive, the application assigns a pointer to an empty buffer to a DMA descriptor and waits for a packet to arrive via the network.
 
 The MAC can output a PPS signal used to compare the synchronization between two devices. This function ETH_PPS_OUT can be assigned to pins PB5 and PG8
 
@@ -23,11 +24,16 @@ The MAC can output a PPS signal used to compare the synchronization between two 
 
 ### Configuring Ethernet
 
+
 #### Configuring Clocks
-TODO
+The Ethernet MAC uses three clocks connected to the AHB1 bus:
+ETH
+ETHTX
+ETHRX
+
 
 #### Configuring GPIO
-The Ethernet MAC on the STM32H563 connects to the PHY via RMII interface. This interface includes the following pins which should be configured as high-speed ethernet function GPIO:
+The Ethernet MAC on the STM32H563ZI connects to the PHY via RMII interface. This interface includes the following pins which should be configured as high-speed alt-function 11 (Ethernet) GPIO:
 
 ETH_REF_CLK -> PA1 \
 ETH_MDC     -> PC1 \
@@ -39,18 +45,29 @@ ETH_TXD0    -> PG13 \
 ETH_TXD1    -> PB15 \
 ETH_TX_EN   -> PG11
 
-#### Configuring MAC
 
-TODO mac address \
-TODO filtering rx mac address
+#### Initialize PHY (via MDIO)
+The LAN8742A-CZ-TR PHY is set to autonegotiate out of the box and likely doesn't need modification. However, the ETH <-> PHY interface must be configured to use RMII
+
+1. Enable SBS clock (APB3ENR_SBS)
+2. Set the PHY interface to RMII in the SBS_PMCR register \
+(optional)
+3. Set MDIO clock to a reasonable division of the system clock in the MACMDIOAR register
+
 
 #### Configuring DMA
 Memory dedicated for Rx DMA descriptors:
 1524 bytes * 4 descriptors = 6096 -> 8192 bytes
+TODO configure descriptors
+* Enable DMA transmit and receive functions
 
-#### Initialize PHY (via MDIO)
-TODO \
-PHY LAN8742A-CZ-TR
+#### Configuring MAC
+
+TODO mac address \
+TODO filtering rx mac address
+* Enable MTL transmit and receive functions
+* Enable MAC transmit and receive functions
+
 
 
 ---
