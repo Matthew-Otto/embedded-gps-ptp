@@ -2,7 +2,7 @@
 #define ETH_H
 
 #include <stdint.h>
-#include "stm32h563xx.h"
+#include "mcu.h"
 
 typedef struct {
     uint8_t dest_mac[6];
@@ -54,7 +54,7 @@ typedef struct {
   volatile uint16_t inner_vlan_tag;
   volatile uint16_t ext_stat;
   volatile uint16_t mac_ctrl_op;
-  volatile uint16_t idk;
+  volatile uint16_t vlan_filter_status;
   volatile uint16_t mac_filter_stat;
   volatile uint16_t pkt_len;
   volatile uint16_t status;
@@ -70,10 +70,10 @@ typedef struct {
   uint32_t ts_high;
 } ETH_timestamp_t;
 
-void ETH_init();
-//void ETH_construct_frame(ethernet_frame_t *frame, uint8_t *dest_mac, uint16_t eth_type, uint8_t *payload, uint16_t payload_len);
-void ETH_send_frame();
+void ETH_IRQHandler(void);
+void ETH_init(void);
 
-int ETH_receive_frame();
+void ETH_send_frame(uint8_t *data, uint16_t length);
+int ETH_receive_frame(void);
 
 #endif // ETH_H

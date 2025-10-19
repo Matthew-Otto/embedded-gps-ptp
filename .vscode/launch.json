@@ -16,10 +16,10 @@
             "searchDir": ["${workspaceFolder}"],
             //"runToEntryPoint": "main",
             "showDevDebugOutput": "raw",
-            "liveWatch": {
-                "enabled": true,
-                "samplesPerSecond": 4
-            }
+            //"liveWatch": {
+            //    "enabled": true,
+            //    "samplesPerSecond": 4
+            //}
         }
     ]
 }

@@ -1,5 +1,6 @@
 #include <stdint.h>
 
+#include "mcu.h"
 #include "clocks.h"
 #include "ethernet.h"
 #include "gpio.h"
@@ -27,6 +28,9 @@ void reset_handler(void) {
     init_sysclk();
     GPIO_init();
     ETH_init();
+
+    // enable interrupts
+    __enable_irq();
 
     // jump to main
     main();
@@ -73,16 +77,20 @@ void hardfault_handler(void){
     while (1);
 }
 
+void default_fault_isr(void) {
+    while (1);
+}
+
 void default_isr(void) {
     while (1);
 }
 
 // forward declaration of ISRs
-void NMI_handler(void) __attribute__((weak, alias ("default_isr")));
-void memmanage_handler(void) __attribute__((weak, alias ("default_isr")));
-void busfault_handler(void) __attribute__((weak, alias ("default_isr")));
-void usagefault_handler(void) __attribute__((weak, alias ("default_isr")));
-void securefault_handler(void) __attribute__((weak, alias ("default_isr")));
+void NMI_handler(void) __attribute__((weak, alias ("default_fault_isr")));
+void memmanage_handler(void) __attribute__((weak, alias ("default_fault_isr")));
+void busfault_handler(void) __attribute__((weak, alias ("default_fault_isr")));
+void usagefault_handler(void) __attribute__((weak, alias ("default_fault_isr")));
+void securefault_handler(void) __attribute__((weak, alias ("default_fault_isr")));
 
 extern void SVC_handler(void) __attribute__((weak, alias ("default_isr")));
 extern void pendSV_handler(void) __attribute__((weak, alias ("default_isr")));

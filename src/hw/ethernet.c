@@ -1,11 +1,10 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
-#include "stm32h563xx.h"
-#include "stm32h563xx_gpio.h"
-#include "stm32h563xx_eth.h"
+#include "mcu.h"
 #include "gpio.h"
 #include "ethernet.h"
+#include "ip.h"
 
 static uint8_t MACAddr[6] = {0x00,0x80,0xE1,0x00,0x00,0x00};
 static uint8_t IPv4_ADDR[4] = {10, 1, 123, 1};
@@ -27,6 +26,28 @@ static uint32_t current_tx_desc_idx = 0;
 
 static ETH_TypeDef *eth = ETH;
 
+void ETH_IRQHandler(void) {
+    uint32_t int_src = READ_REG(eth->DMAISR);
+    volatile uint32_t isr;
+    if (int_src & 0x1) {
+        // DMA
+        isr = READ_REG(eth->DMACSR);
+        // receive interrupt
+        if (isr & ETH_DMACIER_RIE) ETH_receive_frame();
+    }
+    /* else if (int_src & (0x1<<17)) {
+        // MAC
+        isr = READ_REG(eth->MACISR);
+    }
+    else if (int_src & (0x1<<16)) {
+        // MTL
+        isr = READ_REG(eth->MTLISR);
+    } */
+
+    // clear all DMA interrupt bits
+    // The interrupt is cleared only when all the bits of Interrupt status register (ETH_DMAISR) are cleared.
+    WRITE_REG(eth->DMACSR, 0xFFFFFFFF);
+}
 
 void ETH_IO_init(){
     // Configures bus / IO pins connected to Ethernet PHY
@@ -64,10 +85,6 @@ void ETH_IO_init(){
     configure_pin(GPIOG, RMI_TXD0_Pin, GPIO_MODE_AF_PP, GPIO_NOPULL, GPIO_SPEED_FREQ_HIGH, GPIO_AF11_ETH);
 }
 
-void ETH_HW_init() {
-    // Initialize hardware interrupts and timers
-}
-
 
 uint16_t read_PHY_reg(uint8_t phy_addr) {
     MODIFY_REG(eth->MACMDIOAR, ETH_MACMDIOAR_MOC_RD, 0b11 << 2); // read mode
@@ -101,18 +118,14 @@ void ETH_PHY_init(){
     // set MDIO clock
     MODIFY_REG(eth->MACMDIOAR, ETH_MACMDIOAR_CR, ETH_MACMDIOAR_CR_DIV124);
 
-
-    // Read PHY status (get link speed)
+    // Wait until AutoNeg has completed
     volatile uint16_t scsr = read_PHY_reg(31);
     while (!(scsr & (0x1 << 12))) {
         scsr = read_PHY_reg(31);
     };
+    // Read PHY status (get link speed)
     volatile uint8_t speed = (scsr >> 2) & 0x7;
-
-    volatile int x = 7;
-
 }
-
 
 
 void ETH_MAC_init(){
@@ -169,7 +182,7 @@ void ETH_DMA_init(void) {
         ETH_rx_rd_desc_t *desc = &dma_rx_desc[i].rd;
         desc->buffer1_addr = (uint32_t)eth_rx_buffer[i];
         desc->buffer2_addr = 0;
-        desc->status = 0x81;
+        desc->status = 0xC1;
     }
     // Set Receive Buffers Length
     MODIFY_REG(eth->DMACRCR, ETH_DMACRCR_RBSZ, BUFFER_SIZE << 1);
@@ -182,12 +195,36 @@ void ETH_DMA_init(void) {
 }
 
 
+void ETH_int_init() {
+    // Initialize hardware interrupts and timers
+
+    // Enable ETH DMA interrupts
+    uint32_t dma_ints = 0;
+    dma_ints |= ETH_DMACIER_NIE;  // Normal DMA ints bulk-enable
+    //dma_ints |= ETH_DMACIER_AIE;  // Abnormal DMA ints bulk-enable
+    //dma_ints |= ETH_DMACIER_ERIE; // Early receive interrupts
+    dma_ints |= ETH_DMACIER_RIE;  // Receive interrupts
+    dma_ints |= ETH_DMACIER_TIE; // Transmit interrupts
+    SET_BIT(eth->DMACIER, dma_ints);
+
+    // Enable ETH MAC interrupts
+    uint32_t mac_ints = 0;
+    //mac_ints |= ETH_MACIER_TSIE;  // Timestamp interrupts
+    mac_ints |= ETH_MACIER_PHYIE; // PHY interrupts
+    //SET_BIT(eth->MACIER, mac_ints);
+
+    // enable ETH interrupts in NVIC
+    NVIC_SetPriority(ETH_IRQn, 5);
+    NVIC_EnableIRQ(ETH_IRQn);
+}
+
+
 void ETH_init(){
     ETH_IO_init();
-    ETH_HW_init();
     ETH_PHY_init();
     ETH_MAC_init();
     ETH_DMA_init();
+    ETH_int_init();
 
     // Start DMA transmit and receive
     SET_BIT(eth->DMACTCR, ETH_DMACTCR_ST);
@@ -206,7 +243,7 @@ void ETH_construct_frame(ethernet_frame_t *frame, uint8_t *dest_mac, uint8_t *sr
     memcpy(frame->payload, payload, payload_len);
 }
 
-void ETH_send_frame(){
+void ETH_send_frame(uint8_t *data, uint16_t length){
     // Send an Ethernet frame using DMA.
 
     // TODO check for free descriptor
@@ -215,60 +252,55 @@ void ETH_send_frame(){
     ETH_tx_wb_desc_t *wb_desc = &dma_tx_desc[current_tx_desc_idx].wb;
 
     uint8_t *buffer = eth_tx_buffer[current_tx_desc_idx];
-    uint16_t length = 6;
-    uint8_t data[6] = {0xa,0xb,0xc,0xd,0xe,0xf};
-    uint8_t dest_mac[6] = {0xFF,0xFF,0xFF,0xFF,0xFF,0xFF};
-    uint8_t src_mac[6] = {0x0,0xFF,0xa,0x5,0xFF,0x0};
-
-    for (int i = 0; i < 6; i++) {
-        buffer[i] = dest_mac[i];
-        buffer[i+6] = src_mac[i];
-        buffer[i+12] = data[i];
-    }
+    memcpy(buffer, data, length);
     
     //ETH_construct_frame(&eth_tx_buffer[current_tx_desc_idx], dest_mac, src_mac, 0x8000, data, length);
 
     desc->buffer1_addr = (uint32_t)&eth_tx_buffer[current_tx_desc_idx];
-    //desc->buffer1_len = length & 0x3FFF; BOZO
-    desc->buffer1_len = 109 & 0x3FFF;
+    desc->buffer1_len = length & 0x3FFF;
     desc->buffer2_len = 0x1 << 14; // enable timestamp
     desc->ctrl = 0;
     desc->ctrl |= 0x1 << 29 | 0x1 << 28; // first and last descriptor
     desc->ctrl |= 0b10 << 23; // src addr insertion
     desc->ctrl |= 0x1 << 31; // set own bit
 
-    // Update current RX descriptor idx
+    // Update current TX descriptor idx
     current_tx_desc_idx = (current_tx_desc_idx + 1) % TX_DSC_CNT;
-    // Update RX descriptor tail pointer;
+    // Update TX descriptor tail pointer;
     WRITE_REG(eth->DMACTDTPR, (uint32_t)&dma_tx_desc[current_tx_desc_idx]);
     
     /*
     WRITE_REG(eth->DMACTDTPR, 0);
     y = READ_REG(eth->MTLTQDR); */
 
-    // check status
-    while (wb_desc->status & (0x1 << 31));
-    volatile uint32_t x = READ_REG(eth->DMACSR);
-    volatile uint32_t y = READ_REG(eth->MTLTQDR);
-    volatile uint32_t z = READ_REG(eth->MTLTQUR);
-    
-    volatile int pp = 7;
-    
-    y = READ_REG(eth->MTLTQDR);
-    pp = 7;
+    // BOZO check status
+    //while (wb_desc->status & (0x1 << 31));
+    //for (volatile int i = 0; i < 100; i++);
+    //volatile uint32_t x = READ_REG(eth->DMACSR);
+    //volatile uint32_t y = READ_REG(eth->MTLTQDR);
+    //volatile uint32_t z = READ_REG(eth->MTLTQUR);
+
+    //y = READ_REG(eth->MTLTQDR);
 }
+
 
 // Checks for valid RX descriptors
 // If one exists, process it before resetting DMA descriptor
 int ETH_receive_frame(){
-    volatile ETH_rx_rd_desc_t *rd_desc = &dma_rx_desc[current_rx_desc_idx].rd;
-    volatile ETH_rx_wb_desc_t *wb_desc = &dma_rx_desc[current_rx_desc_idx].wb;
+    ETH_rx_rd_desc_t *rd_desc = &dma_rx_desc[current_rx_desc_idx].rd;
+    ETH_rx_wb_desc_t *wb_desc = &dma_rx_desc[current_rx_desc_idx].wb;
 
     // check that DMA has released this descriptor
     if (wb_desc->status & (0x1<<15))
         return -1;
 
-    // TODO process frame here
+    // if no errors, process packet
+    if (!(wb_desc->pkt_len & (0x1<<15))){
+        process_packet(eth_rx_buffer[current_rx_desc_idx], wb_desc->pkt_len);
+
+        // BOZO
+        ETH_send_frame(eth_rx_buffer[current_rx_desc_idx], wb_desc->pkt_len);
+    }
 
     // Configure descriptor for receive and release back to DMA
     rd_desc->buffer1_addr = (uint32_t)eth_rx_buffer[current_rx_desc_idx];
@@ -277,6 +309,9 @@ int ETH_receive_frame(){
     current_rx_desc_idx = (current_rx_desc_idx + 1) % RX_DSC_CNT;
     // Update RX descriptor tail pointer;
     WRITE_REG(eth->DMACRDTPR, (uint32_t)&dma_rx_desc[current_rx_desc_idx]);
+
+
+    // TODO check if any new packets have been received since entering ISR
 
     return 0;
 }

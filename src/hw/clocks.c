@@ -1,4 +1,4 @@
-#include "stm32h563xx.h"
+#include "mcu.h"
 #include "clocks.h"
 
 void init_sysclk(void) {

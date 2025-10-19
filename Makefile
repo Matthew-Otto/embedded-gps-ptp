@@ -19,7 +19,7 @@ DEBUG = 1
 OPT = -Og
 LIBS = -lc -lm -lnosys
 LDSCRIPT = $(SRC_DIR)stm32h563.ld
-INC = -I$(SRC_DIR)/inc -I$(SRC_DIR)/hw
+INC = -I$(SRC_DIR)/inc -I$(SRC_DIR)/hw -I$(SRC_DIR)/network
 
 ASFLAGS = $(MCU) $(OPT)
 CFLAGS = $(MCU) $(OPT) $(INC) -Wall -fdata-sections -ffunction-sections
@@ -32,7 +32,7 @@ CFLAGS += -g -gdwarf-2
 endif
 
 # Sources
-C_SRCS = $(wildcard $(SRC_DIR)*.c $(SRC_DIR)hw/*.c)
+C_SRCS = $(wildcard $(SRC_DIR)*.c $(SRC_DIR)hw/*.c $(SRC_DIR)network/*.c)
 S_SRCS = $(wildcard *.s)
 OBJS = $(addprefix $(BUILD_DIR),$(notdir $(C_SRCS:.c=.o)))
 vpath %.c $(sort $(dir $(C_SRCS)))

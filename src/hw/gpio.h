@@ -2,7 +2,7 @@
 #define GPIO_H
 
 #include <stdint.h>
-#include "stm32h563xx.h"
+#include "mcu.h"
 
 void GPIO_init();
 void GPIO_clk_en(char);
