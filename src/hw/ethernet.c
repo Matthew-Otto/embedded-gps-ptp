@@ -50,8 +50,6 @@ void ETH_IRQHandler(void) {
 }
 
 void ETH_IO_init(){
-    // Configures bus / IO pins connected to Ethernet PHY
-
     // Enable clocks
     SET_BIT(RCC->AHB1ENR, RCC_AHB1ENR_ETHEN);
     (void)READ_BIT(RCC->AHB1ENR, RCC_AHB1ENR_ETHEN);
@@ -60,17 +58,7 @@ void ETH_IO_init(){
     SET_BIT(RCC->AHB1ENR, RCC_AHB1ENR_ETHRXEN);
     (void)READ_BIT(RCC->AHB1ENR, RCC_AHB1ENR_ETHRXEN);
 
-    // ETH GPIO Configuration
-    // PA1     ------> ETH_REF_CLK
-    // PA2     ------> ETH_MDIO
-    // PC1     ------> ETH_MDC
-    // PA7     ------> ETH_CRS_DV
-    // PC4     ------> ETH_RXD0
-    // PC5     ------> ETH_RXD1
-    // PG11    ------> ETH_TX_EN
-    // PG13    ------> ETH_TXD0
-    // PB15    ------> ETH_TXD1
-
+    // Configure GPIO pins connecting MCU to Ethernet PHY
     configure_pin(GPIOC, RMII_MDC_Pin, GPIO_MODE_AF_PP, GPIO_NOPULL, GPIO_SPEED_FREQ_HIGH, GPIO_AF11_ETH);
     configure_pin(GPIOC, RMII_RXD0_Pin, GPIO_MODE_AF_PP, GPIO_NOPULL, GPIO_SPEED_FREQ_HIGH, GPIO_AF11_ETH);
     configure_pin(GPIOC, RMII_RXD1_Pin, GPIO_MODE_AF_PP, GPIO_NOPULL, GPIO_SPEED_FREQ_HIGH, GPIO_AF11_ETH);
@@ -170,6 +158,13 @@ void ETH_MAC_init(){
 }
 
 
+static inline void init_read_descriptor(ETH_rx_rd_desc_t *desc, uint16_t idx) {
+    // Configure descriptor for receive and release back to DMA
+    desc->buffer1_addr = (uint32_t)eth_rx_buffer[idx];
+    desc->status = 0xC1; // set own bit , enable interrupt, and buffer1_valid
+}
+
+
 void ETH_DMA_init(void) {
     // TX descriptors
     // Set Transmit Descriptor Ring Length
@@ -180,9 +175,7 @@ void ETH_DMA_init(void) {
     // RX descriptors
     for (int i = 0; i < RX_DSC_CNT; i++) {
         ETH_rx_rd_desc_t *desc = &dma_rx_desc[i].rd;
-        desc->buffer1_addr = (uint32_t)eth_rx_buffer[i];
-        desc->buffer2_addr = 0;
-        desc->status = 0xC1;
+        init_read_descriptor(desc, i);
     }
     // Set Receive Buffers Length
     MODIFY_REG(eth->DMACRCR, ETH_DMACRCR_RBSZ, BUFFER_SIZE << 1);
@@ -284,6 +277,8 @@ void ETH_send_frame(uint8_t *data, uint16_t length){
 }
 
 
+
+
 // Checks for valid RX descriptors
 // If one exists, process it before resetting DMA descriptor
 int ETH_receive_frame(){
@@ -303,8 +298,8 @@ int ETH_receive_frame(){
     }
 
     // Configure descriptor for receive and release back to DMA
-    rd_desc->buffer1_addr = (uint32_t)eth_rx_buffer[current_rx_desc_idx];
-    rd_desc->status = 0x81; // set own bit and buffer1_valid
+    init_read_descriptor(rd_desc, current_rx_desc_idx);
+
     // Update current RX descriptor idx
     current_rx_desc_idx = (current_rx_desc_idx + 1) % RX_DSC_CNT;
     // Update RX descriptor tail pointer;
@@ -316,3 +311,73 @@ int ETH_receive_frame(){
     return 0;
 }
 
+
+
+// dumps various status registers useful for debugging
+void ETH_dump_SR(void) {
+    volatile uint32_t global_ints_disabled = __get_PRIMASK();  // Should be 0 (interrupts enabled)
+
+    // Ethernet interrupt category
+    volatile uint32_t ETH_int_stat = READ_REG(eth->DMAISR);
+    volatile uint8_t MACIS = (ETH_int_stat & ETH_DMAISR_MACIS) >> ETH_DMAISR_MACIS_Pos;     // MAC Interrupt Status
+    volatile uint8_t MTLIS = (ETH_int_stat & ETH_DMAISR_MTLIS) >> ETH_DMAISR_MTLIS_Pos;     // MTL Interrupt Status
+    volatile uint8_t DMACIS = (ETH_int_stat & ETH_DMAISR_DMACIS) >> ETH_DMAISR_DMACIS_Pos;  // DMA Channel Interrupt Status
+
+    // DMA status bits
+    volatile uint32_t DMA_stat = READ_REG(eth->DMACSR);
+    volatile uint8_t REB = (DMA_stat & ETH_DMACSR_REB) >> ETH_DMACSR_REB_Pos;  // Rx DMA Error Bits
+    volatile uint8_t TEB = (DMA_stat & ETH_DMACSR_TEB) >> ETH_DMACSR_TEB_Pos;  // Tx DMA Error Bits
+    volatile uint8_t NIS = (DMA_stat & ETH_DMACSR_NIS) >> ETH_DMACSR_NIS_Pos;  // Normal Interrupt Summary
+    volatile uint8_t AIS = (DMA_stat & ETH_DMACSR_AIS) >> ETH_DMACSR_AIS_Pos;  // Abnormal Interrupt Summary
+    volatile uint8_t CDE = (DMA_stat & ETH_DMACSR_CDE) >> ETH_DMACSR_CDE_Pos;  // Context Descriptor Error
+    volatile uint8_t FBE = (DMA_stat & ETH_DMACSR_FBE) >> ETH_DMACSR_FBE_Pos;  // Fatal Bus Error
+    volatile uint8_t ERI = (DMA_stat & ETH_DMACSR_ERI) >> ETH_DMACSR_ERI_Pos;  // Early Receive Interrupt
+    volatile uint8_t ETI = (DMA_stat & ETH_DMACSR_ETI) >> ETH_DMACSR_ETI_Pos;  // Early Transmit Interrupt
+    volatile uint8_t RWT = (DMA_stat & ETH_DMACSR_RWT) >> ETH_DMACSR_RWT_Pos;  // Receive Watchdog Timeout
+    volatile uint8_t RPS = (DMA_stat & ETH_DMACSR_RPS) >> ETH_DMACSR_RPS_Pos;  // Receive Process Stopped
+    volatile uint8_t RBU = (DMA_stat & ETH_DMACSR_RBU) >> ETH_DMACSR_RBU_Pos;  // Receive Buffer Unavailable
+    volatile uint8_t RI  = (DMA_stat & ETH_DMACSR_RI)  >> ETH_DMACSR_RI_Pos;   // Receive Interrupt
+    volatile uint8_t TBU = (DMA_stat & ETH_DMACSR_TBU) >> ETH_DMACSR_TBU_Pos;  // Transmit Buffer Unavailable
+    volatile uint8_t TPS = (DMA_stat & ETH_DMACSR_TPS) >> ETH_DMACSR_TPS_Pos;  // Transmit Process Stopped
+    volatile uint8_t TI  = (DMA_stat & ETH_DMACSR_TI)  >> ETH_DMACSR_TI_Pos;   // Transmit Interrupt
+
+    // DMA interrupt enable bits
+    volatile uint32_t DMA_int_en = READ_REG(eth->DMACIER);
+    volatile uint8_t NIE = (DMA_int_en & ETH_DMACIER_NIE) >> ETH_DMACIER_NIE_Pos;     // Normal Interrupt Summary Enable
+    volatile uint8_t AIE = (DMA_int_en & ETH_DMACIER_AIE) >> ETH_DMACIER_AIE_Pos;     // Abnormal Interrupt Summary Enable
+    volatile uint8_t CDEE = (DMA_int_en & ETH_DMACIER_CDEE) >> ETH_DMACIER_CDEE_Pos;  // Context Descriptor Error Enable
+    volatile uint8_t FBEE = (DMA_int_en & ETH_DMACIER_FBEE) >> ETH_DMACIER_FBEE_Pos;  // Fatal Bus Error Enable
+    volatile uint8_t ERIE = (DMA_int_en & ETH_DMACIER_ERIE) >> ETH_DMACIER_ERIE_Pos;  // Early Receive Interrupt Enable
+    volatile uint8_t ETIE = (DMA_int_en & ETH_DMACIER_ETIE) >> ETH_DMACIER_ETIE_Pos;  // Early Transmit Interrupt Enable
+    volatile uint8_t RWTE = (DMA_int_en & ETH_DMACIER_RWTE) >> ETH_DMACIER_RWTE_Pos;  // Receive Watchdog Timeout Enable
+    volatile uint8_t RSE = (DMA_int_en & ETH_DMACIER_RSE) >> ETH_DMACIER_RSE_Pos;     // Receive Stopped Enable
+    volatile uint8_t RBUE = (DMA_int_en & ETH_DMACIER_RBUE) >> ETH_DMACIER_RBUE_Pos;  // Receive Buffer Unavailable Enable
+    volatile uint8_t RIE = (DMA_int_en & ETH_DMACIER_RIE) >> ETH_DMACIER_RIE_Pos;     // Receive Interrupt Enable
+    volatile uint8_t TBUE = (DMA_int_en & ETH_DMACIER_TBUE) >> ETH_DMACIER_TBUE_Pos;  // Transmit Buffer Unavailable Enable
+    volatile uint8_t TXSE = (DMA_int_en & ETH_DMACIER_TXSE) >> ETH_DMACIER_TXSE_Pos;  // Transmit Stopped Enable
+    volatile uint8_t TIE = (DMA_int_en & ETH_DMACIER_TIE) >> ETH_DMACIER_TIE_Pos;     // Transmit Interrupt Enable
+
+    // contains address that points to the start of the respective descriptor lists
+    volatile uint32_t DMA_TX_descr_list_addr = READ_REG(eth->DMACTDLAR);
+    volatile uint32_t DMA_RX_descr_list_addr = READ_REG(eth->DMACRDLAR);
+
+    // points to the last valid DMA descriptor
+    volatile uint32_t DMA_TX_descr_tail_ptr = READ_REG(eth->DMACTDTPR);
+    volatile uint32_t DMA_RX_descr_tail_ptr = READ_REG(eth->DMACRDTPR);
+
+    volatile uint32_t TX_queue_stat = READ_REG(eth->MTLTQDR);
+    volatile uint8_t STXSTSF = (TX_queue_stat & ETH_MTLTQDR_STXSTSF) >> ETH_MTLTQDR_STXSTSF_Pos;        //  Number of Status Words in the Tx Status FIFO of Queue
+    volatile uint8_t PTXQ = (TX_queue_stat & ETH_MTLTQDR_PTXQ) >> ETH_MTLTQDR_PTXQ_Pos;                 //  Number of Packets in the Transmit Queue
+    volatile uint8_t TXSTSFSTS = (TX_queue_stat & ETH_MTLTQDR_TXSTSFSTS) >> ETH_MTLTQDR_TXSTSFSTS_Pos;  //  MTL Tx Status FIFO Full Status
+    volatile uint8_t TXQSTS = (TX_queue_stat & ETH_MTLTQDR_TXQSTS) >> ETH_MTLTQDR_TXQSTS_Pos;           //  MTL Tx Queue Not Empty Status
+    volatile uint8_t TWCSTS = (TX_queue_stat & ETH_MTLTQDR_TWCSTS) >> ETH_MTLTQDR_TWCSTS_Pos;           //  MTL Tx Queue Write Controller Status
+    volatile uint8_t TRCSTS = (TX_queue_stat & ETH_MTLTQDR_TRCSTS) >> ETH_MTLTQDR_TRCSTS_Pos;           //  MTL Tx Queue Read Controller Status
+    volatile uint8_t TXQPAUSED = (TX_queue_stat & ETH_MTLTQDR_TXQPAUSED) >> ETH_MTLTQDR_TXQPAUSED_Pos;  //  Transmit Queue in Pause
+
+
+    volatile uint32_t TX_queue_underflow_stat = READ_REG(eth->MTLTQUR);
+    volatile uint8_t Underflow_Counter_Overflow = (TX_queue_underflow_stat & ETH_MTLTQUR_UFCNTOVF) >> ETH_MTLTQUR_UFCNTOVF_Pos;  // Overflow Bit for Underflow Packet Counter
+    volatile uint8_t Underflow_Pkt_Cnt = (TX_queue_underflow_stat & ETH_MTLTQUR_UFPKTCNT) >> ETH_MTLTQUR_UFPKTCNT_Pos;           // Underflow Packet Counter
+
+    __asm volatile("BKPT #0");
+}

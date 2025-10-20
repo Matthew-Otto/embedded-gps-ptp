@@ -72,6 +72,7 @@ typedef struct {
 
 void ETH_IRQHandler(void);
 void ETH_init(void);
+void ETH_dump_SR(void);
 
 void ETH_send_frame(uint8_t *data, uint16_t length);
 int ETH_receive_frame(void);
