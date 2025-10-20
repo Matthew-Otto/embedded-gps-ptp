@@ -7,7 +7,8 @@
 #include "ip.h"
 
 static uint8_t MACAddr[6] = {0x00,0x80,0xE1,0x00,0x00,0x00};
-static uint8_t IPv4_ADDR[4] = {10, 1, 123, 1};
+//static uint8_t IPv4_ADDR[4] = {10, 1, 123, 1};
+static uint8_t IPv4_ADDR[4] = {10, 0, 4, 123};
 
 #define BUFFER_SIZE 1524
 #define RX_DSC_CNT 4
@@ -132,29 +133,57 @@ void ETH_MAC_init(){
     WRITE_REG(eth->MACARPAR, (IPv4_ADDR[0]<<24 | IPv4_ADDR[1]<<16 | IPv4_ADDR[2]<<8 | IPv4_ADDR[3]));
 
     // configure filtering
-    // Promiscuous Mode
-    WRITE_REG(eth->MACPFR, 0x1);
+    cfg = 0;
+    //cfg |= ETH_MACPFR_PR; // Promiscuous Mode
+    cfg |= ETH_MACPFR_SAF; // Filter MAC address
+    WRITE_REG(eth->MACPFR, cfg);
 
     // disable crc checking
-    WRITE_REG(eth->MACECR, 0x1<<16);
+    WRITE_REG(eth->MACECR, cfg);
 
     // interrupts
     // cfg = eth->MACIER register
 
     // operating mode config
     cfg = eth->MACCR;
-    cfg |= 0x1 << 31; // ARP offloading
-    cfg |= 0b011 << 28; // automatic source MAC address replacement
-    cfg |= 0x1 << 27; // checksum offload
-    cfg |= 0x1 << 21; // CRC stripping for Type packets
-    cfg |= 0x1 << 20; // automatic pad/crc stripping
-    cfg |= 0x1 << 14; // 100 Mbps
-    cfg |= 0x1 << 13; // full duplex
+    cfg |= ETH_MACCR_ARP; // ARP offloading
+    cfg |= ETH_MACCR_SARC_REPADDR0; // automatic source MAC address 1 replacement
+    cfg |= ETH_MACCR_IPC; // checksum offload
+    cfg |= ETH_MACCR_CST; // CRC stripping for Type packets
+    cfg |= ETH_MACCR_ACS; // automatic pad/crc stripping
+    cfg |= ETH_MACCR_FES; // 100 Mbps
+    cfg |= ETH_MACCR_DM; // full duplex
     WRITE_REG(eth->MACCR, cfg);
 
     //////// Configure MTL ////////
     WRITE_REG(eth->MTLRQOMR, 0x7 << 4); // configure receive MTL
     WRITE_REG(eth->MTLTQOMR, 0x2 << 2); // configure transmit MTL
+}
+
+
+void ETH_timestamp_init() {
+    // TODO init clk_ptp_i clock?
+    // TODO section 57.9.9
+    
+    // Enable timestamping
+    SET_BIT(eth->MACTSCR, ETH_MACTSCR_TSENA);
+
+    // configure subsecond increment value
+    const double CLK_PERIOD = 4; // clk_ptp_i period (4ns if possible)
+    const double DIV_FACTOR = 0.465;
+    uint32_t subsec_incr_val = (uint32_t)((CLK_PERIOD / DIV_FACTOR) + 0.5);
+    SET_BIT(eth->MACSSIR, subsec_incr_val << ETH_MACMACSSIR_SSINC_Pos);
+
+    // TODO fine correction?
+
+    // Update system time
+    // TODO set time MACSTSUR
+    // TODO set nanosec time MACSTNUR
+    SET_BIT(eth->MACTSCR, ETH_MACTSCR_TSINIT);
+
+
+
+    // TODO offload PTP features? (probably slave only)
 }
 
 
@@ -216,6 +245,7 @@ void ETH_init(){
     ETH_IO_init();
     ETH_PHY_init();
     ETH_MAC_init();
+    ETH_timestamp_init();
     ETH_DMA_init();
     ETH_int_init();
 
@@ -228,14 +258,6 @@ void ETH_init(){
 }
 
 
-
-void ETH_construct_frame(ethernet_frame_t *frame, uint8_t *dest_mac, uint8_t *src_mac, uint16_t eth_type, uint8_t *payload, uint16_t payload_len){
-    memcpy(frame->dest_mac, dest_mac, 6);
-    //memcpy(frame->src_mac, src_mac, 6);
-    frame->eth_type = eth_type;
-    memcpy(frame->payload, payload, payload_len);
-}
-
 void ETH_send_frame(uint8_t *data, uint16_t length){
     // Send an Ethernet frame using DMA.
 
@@ -247,8 +269,6 @@ void ETH_send_frame(uint8_t *data, uint16_t length){
     uint8_t *buffer = eth_tx_buffer[current_tx_desc_idx];
     memcpy(buffer, data, length);
     
-    //ETH_construct_frame(&eth_tx_buffer[current_tx_desc_idx], dest_mac, src_mac, 0x8000, data, length);
-
     desc->buffer1_addr = (uint32_t)&eth_tx_buffer[current_tx_desc_idx];
     desc->buffer1_len = length & 0x3FFF;
     desc->buffer2_len = 0x1 << 14; // enable timestamp
@@ -261,19 +281,6 @@ void ETH_send_frame(uint8_t *data, uint16_t length){
     current_tx_desc_idx = (current_tx_desc_idx + 1) % TX_DSC_CNT;
     // Update TX descriptor tail pointer;
     WRITE_REG(eth->DMACTDTPR, (uint32_t)&dma_tx_desc[current_tx_desc_idx]);
-    
-    /*
-    WRITE_REG(eth->DMACTDTPR, 0);
-    y = READ_REG(eth->MTLTQDR); */
-
-    // BOZO check status
-    //while (wb_desc->status & (0x1 << 31));
-    //for (volatile int i = 0; i < 100; i++);
-    //volatile uint32_t x = READ_REG(eth->DMACSR);
-    //volatile uint32_t y = READ_REG(eth->MTLTQDR);
-    //volatile uint32_t z = READ_REG(eth->MTLTQUR);
-
-    //y = READ_REG(eth->MTLTQDR);
 }
 
 
