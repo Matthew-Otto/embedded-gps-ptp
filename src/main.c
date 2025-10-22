@@ -1,6 +1,7 @@
 #include <stdint.h>
 #include "mcu.h"
 
+#include "time.h"
 #include "gpio.h"
 #include "ethernet.h"
 
@@ -24,19 +25,32 @@ int main(void) {
     ETH_TypeDef *eth = ETH;
 
 
-    WRITE_REG(eth->DMACSR, 0xffffffff); // BOZO
+    volatile uint32_t time1 = 0;
+    volatile uint32_t time2 = 0;
+
     while(1) {
+        volatile uint32_t time = get_timer_val();
+
         GPIOx->BSRR = 1;
         for (volatile int i = 0; i < 1000000; ++i);
         
         GPIOx->BSRR = 0x1 << 16;
         for (volatile int i = 0; i < 1000000; ++i);
 
-        // send frame on button press
-        /* if (((GPIO_TypeDef *)GPIOC)->IDR & GPIO_PIN_13) {
-            ((GPIO_TypeDef *)GPIOF)->BSRR = (uint32_t)(GPIO_PIN_4<<16);
-            ETH_send_frame();
-        } */
+        volatile uint32_t ptp_sec = READ_REG(eth->MACSTSR);
+        volatile uint32_t ptp_nsec = READ_REG(eth->MACSTNR);
+        ETH_receive_frame();
+
+        if (((GPIO_TypeDef *)GPIOC)->IDR & GPIO_PIN_13) {
+            //((GPIO_TypeDef *)GPIOF)->BSRR = (uint32_t)(GPIO_PIN_4<<16);
+            if (time1 == 0) {
+                time1 = get_timer_val();
+            } else {
+                time2 = get_timer_val();
+                volatile uint32_t z = time2 - time1;
+                __asm volatile("BKPT #0");
+            }
+        }
     }
 
     return 0;

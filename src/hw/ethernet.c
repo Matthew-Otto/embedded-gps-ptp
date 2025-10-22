@@ -7,18 +7,19 @@
 #include "ip.h"
 
 static uint8_t MACAddr[6] = {0x00,0x80,0xE1,0x00,0x00,0x00};
-//static uint8_t IPv4_ADDR[4] = {10, 1, 123, 1};
-static uint8_t IPv4_ADDR[4] = {10, 0, 4, 123};
+static uint8_t IPv4_ADDR[4] = {10, 1, 123, 1};
+//static uint8_t IPv4_ADDR[4] = {10, 0, 4, 123};
 
 #define BUFFER_SIZE 1524
 #define RX_DSC_CNT 4
-#define TX_DSC_CNT 4
+#define TX_DSC_CNT 8
 
 __attribute__((section(".eth_rx_buffer")))
 volatile static uint8_t eth_rx_buffer[RX_DSC_CNT][BUFFER_SIZE];
 __attribute__((section(".eth_tx_buffer")))
 volatile static uint8_t eth_tx_buffer[TX_DSC_CNT][BUFFER_SIZE];
 
+// BOZO context descriptors dont need frame buffers
 volatile static ETH_rx_desc_u dma_rx_desc[RX_DSC_CNT];
 volatile static ETH_tx_desc_u dma_tx_desc[TX_DSC_CNT];
 static uint32_t current_rx_desc_idx = 0;
@@ -161,32 +162,6 @@ void ETH_MAC_init(){
 }
 
 
-void ETH_timestamp_init() {
-    // TODO init clk_ptp_i clock?
-    // TODO section 57.9.9
-    
-    // Enable timestamping
-    SET_BIT(eth->MACTSCR, ETH_MACTSCR_TSENA);
-
-    // configure subsecond increment value
-    const double CLK_PERIOD = 4; // clk_ptp_i period (4ns if possible)
-    const double DIV_FACTOR = 0.465;
-    uint32_t subsec_incr_val = (uint32_t)((CLK_PERIOD / DIV_FACTOR) + 0.5);
-    SET_BIT(eth->MACSSIR, subsec_incr_val << ETH_MACMACSSIR_SSINC_Pos);
-
-    // TODO fine correction?
-
-    // Update system time
-    // TODO set time MACSTSUR
-    // TODO set nanosec time MACSTNUR
-    SET_BIT(eth->MACTSCR, ETH_MACTSCR_TSINIT);
-
-
-
-    // TODO offload PTP features? (probably slave only)
-}
-
-
 static inline void init_read_descriptor(ETH_rx_rd_desc_t *desc, uint16_t idx) {
     // Configure descriptor for receive and release back to DMA
     desc->buffer1_addr = (uint32_t)eth_rx_buffer[idx];
@@ -240,29 +215,140 @@ void ETH_int_init() {
     NVIC_EnableIRQ(ETH_IRQn);
 }
 
+void ETH_PTP_init() {
+    uint32_t cfg;
+
+    // Mask the Timestamp Trigger interrupt
+    CLEAR_BIT(eth->MACIER, ETH_MACIER_TSIE);
+    
+    // Enable timestamping
+    SET_BIT(eth->MACTSCR, ETH_MACTSCR_TSENA);
+
+    // configure subsecond increment value
+    const int CLK_PERIOD = 4; // clk_ptp_i period (4ns for 250MHz)
+    SET_BIT(eth->MACSSIR, CLK_PERIOD << ETH_MACMACSSIR_SSINC_Pos);
+    SET_BIT(eth->MACTSCR, ETH_MACTSCR_TSCTRLSSR);
+
+    // Update system time
+    WRITE_REG(eth->MACSTSUR, 0);
+    WRITE_REG(eth->MACSTNUR, 0);
+    SET_BIT(eth->MACTSCR, ETH_MACTSCR_TSINIT); // initialize timestamp value
+    while (READ_BIT(eth->MACTSCR, ETH_MACTSCR_TSINIT)); // wait for completion
+
+    // Enable PTP offloading features
+#ifdef MASTER
+    // Automatic PTP Sync messages
+    MODIFY_REG(eth->MACTSCR, ETH_MACTSCR_SNAPTYPSEL_Msk, 0 << ETH_MACTSCR_SNAPTYPSEL_Pos);
+    MODIFY_REG(eth->MACTSCR, ETH_MACTSCR_TSMSTRENA_Msk, 1 << ETH_MACTSCR_TSMSTRENA_Pos);
+    MODIFY_REG(eth->MACTSCR, ETH_MACTSCR_TSEVNTENA_Msk, 1 << ETH_MACTSCR_TSEVNTENA_Pos);
+    MODIFY_REG(eth->MACTSCR, ETH_MACTSCR_TSIPV4ENA_Msk, 1 << ETH_MACTSCR_TSIPV4ENA_Pos);
+    SET_BIT(eth->MACTSCR, ETH_MACTSCR_TSIPENA);
+    SET_BIT(eth->MACTSCR, ETH_MACTSCR_TSVER2ENA);
+
+    // Enable PTP offloading
+    cfg = 0;
+    cfg |= ETH_MACPOCR_PTOEN;
+    cfg |= ETH_MACPOCR_ASYNCEN;
+    //cfg |= domain_num << ETH_MACPOCR_DN_Pos;
+    WRITE_REG(eth->MACPOCR, cfg);
+
+    // Configure Source port identity
+    WRITE_REG(eth->MACSPI0R, 0xdeadbeef);
+    WRITE_REG(eth->MACSPI1R, 0xd066f00d);
+    WRITE_REG(eth->MACSPI2R, 0x1234);
+
+    // Set automatic sync message period
+    MODIFY_REG(eth->MACLMIR, ETH_MACLMIR_LSI_Msk, 0 << ETH_MACLMIR_LSI_Pos);
+#else
+    // Automatic PTP Sync messages
+    MODIFY_REG(eth->MACTSCR, ETH_MACTSCR_SNAPTYPSEL_Msk, 0 << ETH_MACTSCR_SNAPTYPSEL_Pos);
+    MODIFY_REG(eth->MACTSCR, ETH_MACTSCR_TSMSTRENA_Msk, 0 << ETH_MACTSCR_TSMSTRENA_Pos);
+    MODIFY_REG(eth->MACTSCR, ETH_MACTSCR_TSEVNTENA_Msk, 1 << ETH_MACTSCR_TSEVNTENA_Pos);
+    MODIFY_REG(eth->MACTSCR, ETH_MACTSCR_TSIPV4ENA_Msk, 1 << ETH_MACTSCR_TSIPV4ENA_Pos);
+    SET_BIT(eth->MACTSCR, ETH_MACTSCR_TSIPENA);
+    SET_BIT(eth->MACTSCR, ETH_MACTSCR_TSVER2ENA);
+
+    // Enable PTP offloading
+    cfg = 0;
+    cfg |= ETH_MACPOCR_PTOEN;
+    cfg |= ETH_MACPOCR_ASYNCEN;
+    //cfg |= domain_num << ETH_MACPOCR_DN_Pos;
+    WRITE_REG(eth->MACPOCR, cfg);
+
+    // Configure Source port identity
+    WRITE_REG(eth->MACSPI0R, 0xdeadbeef);
+    WRITE_REG(eth->MACSPI1R, 0xd066f00d);
+    WRITE_REG(eth->MACSPI2R, 0x4321);
+
+    // Number of sync messages received before sending DELAY_REQ
+    MODIFY_REG(eth->MACLMIR, ETH_MACLMIR_DRSYNCR_Msk, 0 << ETH_MACLMIR_DRSYNCR_Pos);
+#endif
+
+    // Enable timestamp interrupt
+    SET_BIT(eth->MACIER, ETH_MACIER_TSIE);
+}
+
+
+// Configure Ethernet PPS to PG8
+void ETH_PPS_init(void) {
+    // configure PPS pin PG8
+    configure_pin(GPIOG, GPIO_PIN_8, GPIO_MODE_AF_PP, GPIO_NOPULL, GPIO_SPEED_FREQ_VERY_HIGH, GPIO_AF11_ETH);
+
+    // Exceeding target time (0 unless set) triggers PPS output
+    MODIFY_REG(eth->MACPPSCR, ETH_MACPPSCR_TRGTMODSEL0_Msk, 0x3 << ETH_MACPPSCR_TRGTMODSEL0_Pos);
+    MODIFY_REG(eth->MACPPSCR, ETH_MACPPSCR_PPSCTRL_Msk, 0xF << ETH_MACPPSCR_PPSCTRL_Pos);
+}
+
 
 void ETH_init(){
     ETH_IO_init();
     ETH_PHY_init();
     ETH_MAC_init();
-    ETH_timestamp_init();
     ETH_DMA_init();
     ETH_int_init();
-
+    ETH_PTP_init();
+    ETH_PPS_init();
+    
     // Start DMA transmit and receive
     SET_BIT(eth->DMACTCR, ETH_DMACTCR_ST);
     SET_BIT(eth->DMACRCR, ETH_DMACRCR_SR);
-
+    
     // Enable MAC transmitter and receiver
     SET_BIT(eth->MACCR, 0x3);
 }
 
 
+// finds a valid TX buffer, fills in the correct ethernet header and returns the buffer address
+void ETH_build_header(uint8_t **buffer, const uint8_t *dst, const uint16_t ethertype) {
+    *buffer = (uint8_t *)eth_tx_buffer[current_tx_desc_idx];
+
+    memcpy(*buffer, dst, 6);
+    memcpy(*buffer + 6, MACAddr, 6);
+    *(*buffer + 12) = ethertype;
+}
+
+
+void ETH_send_timestamp_frame(uint8_t *data, uint16_t length) {
+    // Set up context descriptor
+    ETH_tx_ctx_desc_t *ctx_desc = &dma_tx_desc[current_tx_desc_idx].ctx;
+    ctx_desc->ctrl = 0;
+    ctx_desc->ctrl |= (0x1 << 30); // context type
+    //ctx_desc->ctrl |= (0x1 << 27); // one-step correction
+    ctx_desc->ctrl |= (0x1 << 31);
+
+    // Update current TX descriptor idx
+    current_tx_desc_idx = (current_tx_desc_idx + 1) % TX_DSC_CNT;
+    // Update TX descriptor tail pointer;
+    WRITE_REG(eth->DMACTDTPR, (uint32_t)&dma_tx_desc[current_tx_desc_idx]);
+
+    ETH_send_frame(data, length);
+}
+
 void ETH_send_frame(uint8_t *data, uint16_t length){
     // Send an Ethernet frame using DMA.
-
     // TODO check for free descriptor
 
+    // Set up packet descriptor
     ETH_tx_rd_desc_t *desc = &dma_tx_desc[current_tx_desc_idx].rd;
     ETH_tx_wb_desc_t *wb_desc = &dma_tx_desc[current_tx_desc_idx].wb;
 
@@ -321,7 +407,7 @@ int ETH_receive_frame(){
 
 
 // dumps various status registers useful for debugging
-void ETH_dump_SR(void) {
+/* void ETH_dump_SR(void) {
     volatile uint32_t global_ints_disabled = __get_PRIMASK();  // Should be 0 (interrupts enabled)
 
     // Ethernet interrupt category
@@ -387,4 +473,4 @@ void ETH_dump_SR(void) {
     volatile uint8_t Underflow_Pkt_Cnt = (TX_queue_underflow_stat & ETH_MTLTQUR_UFPKTCNT) >> ETH_MTLTQUR_UFPKTCNT_Pos;           // Underflow Packet Counter
 
     __asm volatile("BKPT #0");
-}
+} */

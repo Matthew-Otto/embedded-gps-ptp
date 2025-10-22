@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include "mcu.h"
 
+uint16_t ntohs(uint16_t data);
 void process_packet(uint8_t *data, uint16_t len);
 
 typedef struct {

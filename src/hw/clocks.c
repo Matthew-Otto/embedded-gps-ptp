@@ -45,6 +45,8 @@ void init_sysclk(void) {
     MODIFY_REG(RCC->PLL1CFGR, RCC_PLL1CFGR_PLL1VCOSEL, 0);
     // Enable PLL1 System Clock output
     SET_BIT(RCC->PLL1CFGR, RCC_PLL1CFGR_PLL1PEN);
+    // Enable PLL1 DIVQ divier output (for clk_ptp_ref_i)
+    SET_BIT(RCC->PLL1CFGR, RCC_PLL1CFGR_PLL1QEN);
 
     // Enable PLL1
     SET_BIT(RCC->CR, RCC_CR_PLL1ON);
@@ -67,8 +69,4 @@ void init_sysclk(void) {
     // SYSCLK
     MODIFY_REG(RCC->CFGR1, RCC_CFGR1_SW, RCC_SYSCLKSOURCE_PLLCLK);
     while ((uint32_t)(RCC->CFGR1 & RCC_CFGR1_SWS) != (RCC_CFGR1_SWS_0 | RCC_CFGR1_SWS_1));
-
-
-    // Update the SystemCoreClock global variable
-    // SystemCoreClock = HAL_RCC_GetSysClockFreq() >> AHBPrescTable[(RCC->CFGR2 & RCC_CFGR2_HPRE) >> RCC_CFGR2_HPRE_Pos];
 }

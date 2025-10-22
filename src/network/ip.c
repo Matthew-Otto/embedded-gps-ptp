@@ -4,8 +4,12 @@
 #include "ip.h"
 
 // convert a 16-bit number from network byte order (big-endian) to little-endian
-static uint16_t ntohs(uint16_t data) {
+uint16_t ntohs(uint16_t data) {
     return (data >> 8) | (data << 8);
+}
+
+void IP_build_udp_header(void) {
+    
 }
 
 // compute 16-bit Internet checksum

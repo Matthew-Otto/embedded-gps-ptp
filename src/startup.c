@@ -2,6 +2,7 @@
 
 #include "mcu.h"
 #include "clocks.h"
+#include "time.h"
 #include "ethernet.h"
 #include "gpio.h"
 
@@ -26,6 +27,7 @@ void reset_handler(void) {
 
     // initialize system
     init_sysclk();
+    TIME_init();
     GPIO_init();
     ETH_init();
 

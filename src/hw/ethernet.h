@@ -4,12 +4,14 @@
 #include <stdint.h>
 #include "mcu.h"
 
-typedef struct {
-    uint8_t dest_mac[6];
-    //uint8_t src_mac[6];
-    uint16_t eth_type;
-    uint8_t payload[1500];
-} ethernet_frame_t;
+void ETH_IRQHandler(void);
+void ETH_init(void);
+void ETH_dump_SR(void);
+void ETH_build_header(uint8_t **buffer, const uint8_t *dst, const uint16_t ethertype);
+void ETH_send_timestamp_frame(uint8_t *data, uint16_t length);
+void ETH_send_frame(uint8_t *data, uint16_t length);
+int ETH_receive_frame(void);
+
 
 typedef struct {
   volatile uint32_t buffer1_addr;
@@ -32,7 +34,7 @@ typedef struct {
   volatile uint16_t max_seg_size;
   volatile uint16_t inner_vlan_tag;
   volatile uint16_t vlan_tag;
-  volatile uint16_t control;
+  volatile uint16_t ctrl;
 } ETH_tx_ctx_desc_t;
 
 typedef union {
@@ -65,16 +67,5 @@ typedef union {
     ETH_rx_wb_desc_t wb;
 } ETH_rx_desc_u;
 
-typedef struct {
-  uint32_t ts_low;
-  uint32_t ts_high;
-} ETH_timestamp_t;
-
-void ETH_IRQHandler(void);
-void ETH_init(void);
-void ETH_dump_SR(void);
-
-void ETH_send_frame(uint8_t *data, uint16_t length);
-int ETH_receive_frame(void);
 
 #endif // ETH_H
