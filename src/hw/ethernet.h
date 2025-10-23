@@ -94,7 +94,8 @@ typedef struct __attribute__((packed)) {
 
 void ETH_IRQHandler(void);
 void ETH_init(void);
-void ETH_update_PTP_TS(const int32_t offset_sec, const int32_t offset_nsec);
+void ETH_update_PTP_TS_coarse(const int32_t offset_sec, const int32_t offset_nsec);
+void ETH_update_PTP_drift_comp(const int32_t comp);
 void ETH_dump_SR(void);
 void ETH_build_header(uint8_t **buffer, const uint8_t *dst, const uint16_t ethertype);
 void ETH_send_timestamp_frame(uint8_t *data, uint16_t length);

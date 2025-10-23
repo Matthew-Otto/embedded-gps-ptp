@@ -224,7 +224,7 @@ void ETH_int_init() {
     //SET_BIT(eth->MACIER, mac_ints);
 
     // enable ETH interrupts in NVIC
-    NVIC_SetPriority(ETH_IRQn, 5);
+    NVIC_SetPriority(ETH_IRQn, 1);
     NVIC_EnableIRQ(ETH_IRQn);
 }
 
@@ -281,8 +281,11 @@ void ETH_PTP_init() {
     SET_BIT(eth->MACTSCR, ETH_MACTSCR_TSIPENA);
     SET_BIT(eth->MACTSCR, ETH_MACTSCR_TSVER2ENA);
 
-    // BOZO overwrite ts even if prev one was missed
-    //SET_BIT(eth->MACTSCR, ETH_MACTSCR_TXTSSTSM);
+    // Fine correction method
+    WRITE_REG(eth->MACTSAR, 0);
+    SET_BIT(eth->MACTSCR, ETH_MACTSCR_TSADDREG);
+    while (READ_BIT(eth->MACTSCR, ETH_MACTSCR_TSADDREG));
+    //SET_BIT(eth->MACTSCR, ETH_MACTSCR_TSCFUPDT); // use fine correction
 
     // Enable PTP offloading
     cfg = 0;
@@ -299,9 +302,6 @@ void ETH_PTP_init() {
     MODIFY_REG(eth->MACLMIR, ETH_MACLMIR_DRSYNCR_Msk, 0 << ETH_MACLMIR_DRSYNCR_Pos);
 #endif
 
-    // BOZO drop transmit status from MAC in MTL
-    //SET_BIT(eth->MTLOMR, ETH_MTLOMR_DTXSTS);
-
     // Enable timestamp interrupt
     //SET_BIT(eth->MACIER, ETH_MACIER_TSIE);
 }
@@ -315,16 +315,29 @@ void ETH_PPS_init(void) {
     // Exceeding target time (0 unless set) triggers PPS output
     MODIFY_REG(eth->MACPPSCR, ETH_MACPPSCR_TRGTMODSEL0_Msk, 0x3 << ETH_MACPPSCR_TRGTMODSEL0_Pos);
     // Freq of PPS
-    MODIFY_REG(eth->MACPPSCR, ETH_MACPPSCR_PPSCTRL_Msk, 0xA << ETH_MACPPSCR_PPSCTRL_Pos);
+    MODIFY_REG(eth->MACPPSCR, ETH_MACPPSCR_PPSCTRL_Msk, 0xF << ETH_MACPPSCR_PPSCTRL_Pos);
 }
 
 
-void ETH_update_PTP_TS(const int32_t offset_sec, const int32_t offset_nsec) {
+void ETH_update_PTP_TS_coarse(const int32_t offset_sec, const int32_t offset_nsec) {
+    // Set coarse update mode
+    CLEAR_BIT(eth->MACTSCR, ETH_MACTSCR_TSCFUPDT);
     WRITE_REG(eth->MACSTSUR, offset_sec);
     WRITE_REG(eth->MACSTNUR, offset_nsec);
     // Update and wait for completion
     SET_BIT(eth->MACTSCR, ETH_MACTSCR_TSUPDT);
     while (READ_BIT(eth->MACTSCR, ETH_MACTSCR_TSUPDT));
+}
+
+void ETH_update_PTP_drift_comp(const int32_t comp) {
+    // Set fine update mode
+    SET_BIT(eth->MACTSCR, ETH_MACTSCR_TSCFUPDT);
+    WRITE_REG(eth->MACTSAR, comp);
+
+    volatile uint32_t z = READ_REG(eth->MACTSAR); // BOZO
+    // Update and wait for completion
+    SET_BIT(eth->MACTSCR, ETH_MACTSCR_TSADDREG);
+    while (READ_BIT(eth->MACTSCR, ETH_MACTSCR_TSADDREG));
 }
 
 void ETH_init(){

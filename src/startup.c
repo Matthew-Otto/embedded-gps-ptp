@@ -15,7 +15,18 @@ extern uint32_t _ebss;
 
 extern void main(void);
 
+void init_fpu(void) {
+    SCB_Type *scb = SCB;
+
+    // CP10 and CP11 Full Access
+    uint32_t cfg = 0;
+    cfg |= (0x3 << 20);
+    cfg |= (0x3 << 22);
+    WRITE_REG(scb->CPACR, cfg);
+}
+
 void reset_handler(void) {
+    __disable_irq();
     // Copy .data section from FLASH to SRAM
     uint32_t *src = &_sidata;
     uint32_t *dst = &_sdata;
@@ -27,6 +38,7 @@ void reset_handler(void) {
 
     // initialize system
     init_sysclk();
+    init_fpu();
     TIME_init();
     GPIO_init();
     ETH_init();
