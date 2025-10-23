@@ -4,27 +4,26 @@
 #include <stdint.h>
 #include "mcu.h"
 
-uint16_t ntohs(uint16_t data);
-void process_packet(uint8_t *data, uint16_t len);
 
-typedef struct {
-    uint8_t dst[6];
-    uint8_t src[6];
-    uint16_t ethertype;
-} eth_header_t;
+#define PROTO_ICMP 1
+#define PROTO_TCP  6
+#define PROTO_UDP  17
 
-typedef struct {
-    uint8_t  ver_ihl;
+#define PORT_PTP_EVENT   319
+#define PORT_PTP_GENERAL 320
+
+typedef struct __attribute__((packed)) {
+    uint8_t  version_ihl;
     uint8_t  tos;
     uint16_t total_length;
     uint16_t id;
-    uint16_t flags_frag;
+    uint16_t flags_fragment;
     uint8_t  ttl;
     uint8_t  protocol;
     uint16_t checksum;
-    uint32_t src_ip;
-    uint32_t dst_ip;
-} ip4_header_t;
+    uint32_t src_addr;
+    uint32_t dst_addr;
+} ipv4_header_t;
 
 typedef struct {
     uint8_t  type;
@@ -34,5 +33,15 @@ typedef struct {
     uint16_t seq;
     uint8_t  data[]; // variable length
 } icmp_header_t;
+
+typedef struct {
+    uint16_t src_port;
+    uint16_t dst_port;
+    uint16_t length;
+    uint16_t checksum;
+} udp_header_t;
+
+void process_packet(uint8_t *data);
+void process_icmp(icmp_header_t *icmp, uint16_t len);
 
 #endif // IP_H

@@ -5,15 +5,29 @@
 #include "gpio.h"
 #include "ethernet.h"
 #include "ip.h"
+#include "ptp.h"
 
+// TODO:
+// filter mac address but allow PTP multi/broadcast
+
+#ifdef MASTER
 static uint8_t MACAddr[6] = {0x00,0x80,0xE1,0x00,0x00,0x00};
 static uint8_t IPv4_ADDR[4] = {10, 1, 123, 1};
+#else
+static uint8_t MACAddr[6] = {0x00,0x80,0xE1,0x12,0x34,0x00};
+static uint8_t IPv4_ADDR[4] = {10, 1, 123, 2};
+#endif
 //static uint8_t IPv4_ADDR[4] = {10, 0, 4, 123};
 
 #define BUFFER_SIZE 1524
 #define RX_DSC_CNT 4
 #define TX_DSC_CNT 8
 
+// Global variables
+uint32_t rx_timestamp_sec;
+uint32_t rx_timestamp_nsec;
+
+// Local (static) variables
 __attribute__((section(".eth_rx_buffer")))
 volatile static uint8_t eth_rx_buffer[RX_DSC_CNT][BUFFER_SIZE];
 __attribute__((section(".eth_tx_buffer")))
@@ -28,8 +42,10 @@ static uint32_t current_tx_desc_idx = 0;
 
 static ETH_TypeDef *eth = ETH;
 
+static volatile int cnt = 0;
+
 void ETH_IRQHandler(void) {
-    uint32_t int_src = READ_REG(eth->DMAISR);
+    volatile uint32_t int_src = READ_REG(eth->DMAISR);
     volatile uint32_t isr;
     if (int_src & 0x1) {
         // DMA
@@ -38,8 +54,7 @@ void ETH_IRQHandler(void) {
         if (isr & ETH_DMACIER_RIE) ETH_receive_frame();
     }
     /* else if (int_src & (0x1<<17)) {
-        // MAC
-        isr = READ_REG(eth->MACISR);
+
     }
     else if (int_src & (0x1<<16)) {
         // MTL
@@ -110,9 +125,7 @@ void ETH_PHY_init(){
 
     // Wait until AutoNeg has completed
     volatile uint16_t scsr = read_PHY_reg(31);
-    while (!(scsr & (0x1 << 12))) {
-        scsr = read_PHY_reg(31);
-    };
+    //while (!(scsr & (0x1 << 12))) scsr = read_PHY_reg(31);
     // Read PHY status (get link speed)
     volatile uint8_t speed = (scsr >> 2) & 0x7;
 }
@@ -135,7 +148,7 @@ void ETH_MAC_init(){
 
     // configure filtering
     cfg = 0;
-    //cfg |= ETH_MACPFR_PR; // Promiscuous Mode
+    cfg |= ETH_MACPFR_PR; // Promiscuous Mode
     cfg |= ETH_MACPFR_SAF; // Filter MAC address
     WRITE_REG(eth->MACPFR, cfg);
 
@@ -226,8 +239,8 @@ void ETH_PTP_init() {
 
     // configure subsecond increment value
     const int CLK_PERIOD = 4; // clk_ptp_i period (4ns for 250MHz)
-    SET_BIT(eth->MACSSIR, CLK_PERIOD << ETH_MACMACSSIR_SSINC_Pos);
-    SET_BIT(eth->MACTSCR, ETH_MACTSCR_TSCTRLSSR);
+    SET_BIT(eth->MACSSIR, 8 << ETH_MACMACSSIR_SSINC_Pos);
+    //SET_BIT(eth->MACTSCR, ETH_MACTSCR_TSCTRLSSR);
 
     // Update system time
     WRITE_REG(eth->MACSTSUR, 0);
@@ -268,10 +281,12 @@ void ETH_PTP_init() {
     SET_BIT(eth->MACTSCR, ETH_MACTSCR_TSIPENA);
     SET_BIT(eth->MACTSCR, ETH_MACTSCR_TSVER2ENA);
 
+    // BOZO overwrite ts even if prev one was missed
+    //SET_BIT(eth->MACTSCR, ETH_MACTSCR_TXTSSTSM);
+
     // Enable PTP offloading
     cfg = 0;
     cfg |= ETH_MACPOCR_PTOEN;
-    cfg |= ETH_MACPOCR_ASYNCEN;
     //cfg |= domain_num << ETH_MACPOCR_DN_Pos;
     WRITE_REG(eth->MACPOCR, cfg);
 
@@ -284,8 +299,11 @@ void ETH_PTP_init() {
     MODIFY_REG(eth->MACLMIR, ETH_MACLMIR_DRSYNCR_Msk, 0 << ETH_MACLMIR_DRSYNCR_Pos);
 #endif
 
+    // BOZO drop transmit status from MAC in MTL
+    //SET_BIT(eth->MTLOMR, ETH_MTLOMR_DTXSTS);
+
     // Enable timestamp interrupt
-    SET_BIT(eth->MACIER, ETH_MACIER_TSIE);
+    //SET_BIT(eth->MACIER, ETH_MACIER_TSIE);
 }
 
 
@@ -296,9 +314,18 @@ void ETH_PPS_init(void) {
 
     // Exceeding target time (0 unless set) triggers PPS output
     MODIFY_REG(eth->MACPPSCR, ETH_MACPPSCR_TRGTMODSEL0_Msk, 0x3 << ETH_MACPPSCR_TRGTMODSEL0_Pos);
-    MODIFY_REG(eth->MACPPSCR, ETH_MACPPSCR_PPSCTRL_Msk, 0xF << ETH_MACPPSCR_PPSCTRL_Pos);
+    // Freq of PPS
+    MODIFY_REG(eth->MACPPSCR, ETH_MACPPSCR_PPSCTRL_Msk, 0xA << ETH_MACPPSCR_PPSCTRL_Pos);
 }
 
+
+void ETH_update_PTP_TS(const int32_t offset_sec, const int32_t offset_nsec) {
+    WRITE_REG(eth->MACSTSUR, offset_sec);
+    WRITE_REG(eth->MACSTNUR, offset_nsec);
+    // Update and wait for completion
+    SET_BIT(eth->MACTSCR, ETH_MACTSCR_TSUPDT);
+    while (READ_BIT(eth->MACTSCR, ETH_MACTSCR_TSUPDT));
+}
 
 void ETH_init(){
     ETH_IO_init();
@@ -344,6 +371,7 @@ void ETH_send_timestamp_frame(uint8_t *data, uint16_t length) {
     ETH_send_frame(data, length);
 }
 
+
 void ETH_send_frame(uint8_t *data, uint16_t length){
     // Send an Ethernet frame using DMA.
     // TODO check for free descriptor
@@ -370,41 +398,70 @@ void ETH_send_frame(uint8_t *data, uint16_t length){
 }
 
 
-
-
 // Checks for valid RX descriptors
 // If one exists, process it before resetting DMA descriptor
 int ETH_receive_frame(){
-    ETH_rx_rd_desc_t *rd_desc = &dma_rx_desc[current_rx_desc_idx].rd;
-    ETH_rx_wb_desc_t *wb_desc = &dma_rx_desc[current_rx_desc_idx].wb;
+    volatile ETH_rx_rd_desc_t *rd_desc = &dma_rx_desc[current_rx_desc_idx].rd;
+    volatile ETH_rx_wb_desc_t *wb_desc = &dma_rx_desc[current_rx_desc_idx].wb;
 
-    // check that DMA has released this descriptor
+    // Check that DMA has released this descriptor
     if (wb_desc->status & (0x1<<15))
         return -1;
 
-    // if no errors, process packet
+    // Check for timestamp
+    uint8_t clear_ctx_desc = 0;
+    uint16_t ctx_desc_idx = (current_rx_desc_idx + 1) % RX_DSC_CNT;
+    volatile ETH_rx_ctx_desc_t *ctx_desc = &dma_rx_desc[ctx_desc_idx].ctx;
+    if ((ctx_desc->ctrl >> 30) == 0x1) { // DMA has released own bit and this descriptor is of context type
+        rx_timestamp_sec = ctx_desc->timestamp_high;
+        rx_timestamp_nsec = ctx_desc->timestamp_low;
+        clear_ctx_desc = 1;
+    }
+
+    // If no errors, process packet
     if (!(wb_desc->pkt_len & (0x1<<15))){
-        process_packet(eth_rx_buffer[current_rx_desc_idx], wb_desc->pkt_len);
+        ETH_process_frame(eth_rx_buffer[current_rx_desc_idx]);
 
         // BOZO
-        ETH_send_frame(eth_rx_buffer[current_rx_desc_idx], wb_desc->pkt_len);
+        //ETH_send_frame(eth_rx_buffer[current_rx_desc_idx], wb_desc->pkt_len);
     }
 
     // Configure descriptor for receive and release back to DMA
     init_read_descriptor(rd_desc, current_rx_desc_idx);
-
     // Update current RX descriptor idx
     current_rx_desc_idx = (current_rx_desc_idx + 1) % RX_DSC_CNT;
+
+    // Reconfigure context descriptor if it exists
+    if (clear_ctx_desc) {
+        // Configure descriptor for receive and release back to DMA
+        init_read_descriptor((ETH_rx_rd_desc_t *)ctx_desc, current_rx_desc_idx);
+        // Update current RX descriptor idx
+        current_rx_desc_idx = (current_rx_desc_idx + 1) % RX_DSC_CNT;
+    }
+
     // Update RX descriptor tail pointer;
     WRITE_REG(eth->DMACRDTPR, (uint32_t)&dma_rx_desc[current_rx_desc_idx]);
 
-
-    // TODO check if any new packets have been received since entering ISR
+    // BOZO check next descriptor just in case
+    volatile ETH_rx_wb_desc_t *wb_desc2 = &dma_rx_desc[current_rx_desc_idx].wb;
+    if (!(wb_desc2->status & (0x1<<15))) {
+        __asm volatile("BKPT #0");
+    }
 
     return 0;
 }
 
+int ETH_process_frame(uint8_t *frame) {
+    eth_header_t *header = (eth_header_t *)frame;
+    uint16_t ethertype = ntohs(header->ethertype);
 
+    uint8_t *payload = ((uint8_t *)frame + sizeof(eth_header_t));
+    if (ethertype == ETHERTYPE_PTP) {
+        process_ptp_message(payload);
+    } else if (ethertype == ETHERTYPE_IPv4) {
+        process_packet(frame);
+    }
+}
 
 // dumps various status registers useful for debugging
 /* void ETH_dump_SR(void) {
