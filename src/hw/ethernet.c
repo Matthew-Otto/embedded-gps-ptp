@@ -127,7 +127,11 @@ void ETH_process_frame(uint8_t *frame) {
 
 // Blocking, will return a pointer to the end of the first available TX buffer
 uint8_t* ETH_get_tx_buffer() {
-    // BOZO TODO check if buffer is free, return NULL if not
+    // Check if buffer is free (DMA has released the corresponding descriptor)
+    volatile ETH_rx_wb_desc_t *wb_desc = &dma_rx_desc[current_rx_desc_idx].wb;
+    if (wb_desc->status & (0x1<<15))
+        return NULL;
+
     uint8_t *buffer = (uint8_t *)eth_tx_buffer[current_tx_buffer_idx] + (BUFFER_SIZE - 1);
     current_tx_buffer_idx = (current_tx_buffer_idx + 1) % TX_DSC_CNT;
     return buffer;
