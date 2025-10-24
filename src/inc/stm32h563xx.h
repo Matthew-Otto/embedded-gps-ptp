@@ -251,9 +251,10 @@ typedef enum
 //#include "core_cm33.h"                       /*!< ARM Cortex-M33 processor and core peripherals */
 //#include "system_stm32h5xx.h"                /*!< STM32H5xx System */
 #include <stdint.h>
+#include "core_armv8mml.h"
 
 #define     __IO    volatile
-#define     __I     volatile
+//#define     __I     volatile
 #define     __IM    volatile const
 
 

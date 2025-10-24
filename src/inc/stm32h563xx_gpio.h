@@ -1,3 +1,6 @@
+#ifndef GPIO_STM32_H
+#define GPIO_STM32_H
+
 #define GPIO_PIN_0                 ((uint16_t)0x0001)  /* Pin 0 selected    */
 #define GPIO_PIN_1                 ((uint16_t)0x0002)  /* Pin 1 selected    */
 #define GPIO_PIN_2                 ((uint16_t)0x0004)  /* Pin 2 selected    */
@@ -338,3 +341,5 @@
 #define GPIO_AF15_EVENTOUT     ((uint8_t)0x0F)  /* EVENTOUT Alternate Function mapping */
 
 #define IS_GPIO_AF(AF)   ((AF) <= (uint8_t)0x0F)
+
+#endif // GPIO_STM32_H

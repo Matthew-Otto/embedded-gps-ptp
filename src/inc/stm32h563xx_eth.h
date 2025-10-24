@@ -1,5 +1,7 @@
-#include "stm32h563xx.h"
+#ifndef ETH_STM32_H
+#define ETH_STM32_H
 
+#include "stm32h563xx.h"
 
 #define TRACE_CK_Pin GPIO_PIN_2
 #define TRACE_CK_GPIO_Port GPIOE
@@ -78,3 +80,5 @@
 #define ETH_MACPCSR_MASK              (ETH_MACPCSR_PWRDWN | ETH_MACPCSR_RWKPKTEN | \
                                        ETH_MACPCSR_MGKPKTEN | ETH_MACPCSR_GLBLUCAST | \
                                        ETH_MACPCSR_RWKPFE)
+
+#endif // ETH_STM32_H
