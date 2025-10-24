@@ -1,82 +1,67 @@
-# Embedded GPS PTP Timeserver
+# ECE382V IoT Ethernet Lab
 
-A GPS referenced Stratum 1 network time server with suport for IEEE 1588 Precision Time Protocol (PTP).
+### Hardware:
+* 2x STM32H563ZI
+* An Ethernet cable
 
-Bare-metal implementation (using CMSIS register descriptions) written for the STMicroelectronics NUCLEO-H563ZI platform
-
----
 
 ### Dependencies:
 
 * arm-none-eabi-*
 * openocd-stm
 
----
 
-### Ethernet Notes
+## Ethernet on STM32H563ZI
 
-The application sends data via Ethernet by assigning the address of an ethernet frame in memory to a DMA descriptor and triggering a transmission by updating the descriptor ring tail pointer.
-To receive, the application assigns a pointer to an empty buffer to a DMA descriptor and waits for a packet to arrive via the network.
+The application communicates with the Ethernet MAC via DMA.
+During initialization, the DMA controller is programmed with the addresses of RX and TX descriptor rings.
 
-The MAC can output a PPS signal used to compare the synchronization between two devices. This function ETH_PPS_OUT can be assigned to pins PB5 and PG8
+A frame can be transmitted by writing the address of an existing Ethernet frame to a TX descriptor and then updating the descriptor ring tail pointer. This signals the DMA to copy a frame to the MAC which will automatically send it out onto the wire.
 
----
+Frames will be received as they come in over the network. If there are valid RX descriptors that contain pointers to a receive buffer, the DMA will automatically copy frames received by the MAC to this buffer. If there are no valid RX descriptors, packets will be dropped.
 
-### Configuring Ethernet
+### Receive
 
+The DMA controller is already configured with receive interrupts enabled. the `ETH_IRQHandler()` function handles this interrupt. It will call `ETH_receive_frame()` which handling resetting the RX descriptors. `ETH_process_frame()` is where incomming packets are processed. This repo includes an example for handling ICMP pings.
 
-#### Configuring Clocks
-The Ethernet MAC uses three clocks connected to the AHB1 bus:
-ETH
-ETHTX
-ETHRX
+### Transmit
 
+There is preallocated memory for `<TX_DSC_CNT>` packet buffers and TX DMA descriptors.
 
-#### Configuring GPIO
-The Ethernet MAC on the STM32H563ZI connects to the PHY via RMII interface. This interface includes the following pins which should be configured as high-speed alt-function 11 (Ethernet) GPIO:
+When you want to send a packet over the network, first call `ETH_get_tx_buffer()` to get a pointer to an available packet buffer to construct your packet within.
+`ETH_get_tx_buffer()` returns a pointer to the last byte in the buffer so packets can be crafted "bottom-up".
 
-ETH_REF_CLK -> PA1 \
-ETH_MDC     -> PC1 \
-ETH_MDIO    -> PA2 \
-ETH_CRS_DV  -> PA7 \
-ETH_RXD0    -> PC4 \
-ETH_RXD1    -> PC5 \
-ETH_TXD0    -> PG13 \
-ETH_TXD1    -> PB15 \
-ETH_TX_EN   -> PG11
+Once you have a valid Ethernet frame ready to send, call `ETH_send_frame()` with the pointer to the first byte of the frame and the length of the frame.
 
+Eample (as seen in `ip.c/process_icmp()`):
 
-#### Initialize PHY (via MDIO)
-The LAN8742A-CZ-TR PHY is set to autonegotiate out of the box and likely doesn't need modification. However, the ETH <-> PHY interface must be configured to use RMII
+``` c++
+uint8_t *buffer = ETH_get_tx_buffer();
+if (buffer == NULL)
+    return;
 
-1. Enable SBS clock (APB3ENR_SBS)
-2. Set the PHY interface to RMII in the SBS_PMCR register \
-(optional)
-3. Set MDIO clock to a reasonable division of the system clock in the MACMDIOAR register
+uint16_t length = 0;
+length += build_icmp_reply(buffer, ntohs(icmp->id), ntohs(icmp->seq), icmp->data, (pkt_len - sizeof(icmp_header_t)));
+length += build_ipv4_header(buffer - length, pack4byte(IPv4_ADDR), ntohl(ip_pkt->src_addr), length, ip_pkt->protocol, ntohs(ip_pkt->id));
+length += ETH_build_header(buffer - length, frame_header->src, ntohs(frame_header->ethertype));
+ETH_send_frame(buffer - length, length);
+```
+### Changing MAC/IP Address
+The MAC address if set using the constant `MACAddr` at the top of `ethernet.c`
 
+The IP address is set using the constant `IPv4_ADDR` at the top of `ip.c`
 
-#### Configuring DMA
-Memory dedicated for Rx DMA descriptors:
-1524 bytes * 4 descriptors = 6096 -> 8192 bytes
-TODO configure descriptors
-* Enable DMA transmit and receive functions
-
-#### Configuring MAC
-
-TODO mac address \
-TODO filtering rx mac address
-* Enable MTL transmit and receive functions
-* Enable MAC transmit and receive functions
+If you will be connecting two boards together, the addresses for one of them should be changed.
 
 
 
----
+## Debugging:
 
-### References / Resources:
+The VSCode config files useful for debugging are included in this repo under `.vscode`. After opening this repo in VSCode, simply install the Cortex-Debug addon. The integrated debugger should now be functional.
+
+## References / Resources:
 
 [STMicroelectronics/OpenOCD](https://github.com/STMicroelectronics/OpenOCD)
-
-[IEEE 1588-2012 Standard](https://standards.ieee.org/ieee/1588/4355/)
 
 [STM32H563 Reference Manual](https://www.st.com/resource/en/reference_manual/rm0481-stm32h52333xx-stm32h56263xx-and-stm32h573xx-armbased-32bit-mcus-stmicroelectronics.pdf) (RM0481)
 
