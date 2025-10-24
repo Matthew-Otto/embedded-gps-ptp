@@ -1,3 +1,7 @@
+// Embedded IoT Ethernet Lab
+// Matthew Otto
+// October 2025
+
 #ifndef IP_H
 #define IP_H
 

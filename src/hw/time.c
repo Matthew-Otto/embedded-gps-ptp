@@ -1,3 +1,7 @@
+// Embedded IoT Ethernet Lab
+// Matthew Otto
+// October 2025
+
 #include "mcu.h"
 
 static TIM_TypeDef *timer = TIM2;

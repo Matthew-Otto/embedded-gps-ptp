@@ -1,7 +1,7 @@
 # ECE382V IoT Ethernet Lab
 
 ### Hardware:
-* 2x STM32H563ZI
+* 2x Nucleo-H563ZI boards
 * An Ethernet cable
 
 

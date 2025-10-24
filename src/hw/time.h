@@ -1,3 +1,7 @@
+// Embedded IoT Ethernet Lab
+// Matthew Otto
+// October 2025
+
 #ifndef TIME_H
 #define TIME_H
 

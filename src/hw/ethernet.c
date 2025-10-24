@@ -1,3 +1,7 @@
+// Embedded IoT Ethernet Lab
+// Matthew Otto
+// October 2025
+
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>

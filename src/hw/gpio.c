@@ -1,3 +1,7 @@
+// Embedded IoT Ethernet Lab
+// Matthew Otto
+// October 2025
+
 #include "gpio.h"
 
 #define PIN(bank, num) ((((bank) - 'A') << 8) | (num))
