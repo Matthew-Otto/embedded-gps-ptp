@@ -6,8 +6,6 @@ BIN_DIR = ./bin/
 MASTER_SERIAL = 001C00453234511637333934
 SLAVE_SERIAL = 004500243234511637333934
 
-SERIAL ?= $(MASTER_SERIAL)
-
 # UTILITY VARIABLES
 AS = arm-none-eabi-as
 CC = arm-none-eabi-gcc
@@ -76,15 +74,20 @@ $(BIN_DIR):
 	mkdir $@
 
 
+flash: $(BIN)
+	openocd -f interface/stlink-dap.cfg \
+	-f target/stm32h5x.cfg \
+	-c "program $(BIN) verify reset exit 0x08000000"
 
+
+# For multi-board setups
 flash-master:
-	make CFLAGS="$(CFLAGS) -DMASTER" SERIAL="$(MASTER_SERIAL)" flash
+	make CFLAGS="$(CFLAGS) -DMASTER" SERIAL="$(MASTER_SERIAL)" flash-serial
 
 flash-slave:
-	make CFLAGS="$(CFLAGS)" SERIAL="$(SLAVE_SERIAL)" flash
+	make CFLAGS="$(CFLAGS)" SERIAL="$(SLAVE_SERIAL)" flash-serial
 
-
-flash: $(BIN)
+flash-serial: $(BIN)
 	openocd -f interface/stlink-dap.cfg -c "adapter serial $(SERIAL)" \
 	-f target/stm32h5x.cfg \
 	-c "program $(BIN) verify reset exit 0x08000000"
