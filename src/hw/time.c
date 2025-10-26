@@ -1,4 +1,7 @@
 #include "mcu.h"
+#include "gpio.h"
+
+#include "gps.h"
 
 static TIM_TypeDef *timer = TIM2;
 
@@ -8,14 +11,11 @@ static uint8_t light_on = 0;
 GPIO_TypeDef *GPIOx = GPIOB;
 
 void TIM2_IRQHandler(void) {
+    // ack interrupt
     WRITE_REG(timer->SR, 0);
-    if (light_on) {
-        ((GPIO_TypeDef *)GPIOB)->BSRR = 0x1 << 16;
-        light_on = 0;
-    } else {
-        ((GPIO_TypeDef *)GPIOB)->BSRR = 1;
-        light_on = 1;
-    }
+
+    toggle_LED(YELLOW_LED);
+    process_gps();
 }
 
 void TIME_timer_init(void) {

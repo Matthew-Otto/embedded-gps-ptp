@@ -56,7 +56,7 @@ void process_ptp_message(uint8_t *buffer) {
             TIME_update(offset_nsec);
         }
     
-        // compensate for drift
+        // compensate for drift (very buggy, nonfunctional)
         else if (last_master_time || last_slave_time) {
             master_time = sync_orig_sec * 1e9 + sync_orig_nsec;
             slave_time = sync_recv_sec * 1e9 + sync_recv_nsec;

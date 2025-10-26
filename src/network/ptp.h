@@ -9,8 +9,8 @@
 #define MSGTYPE_DELAY_RESP 9
 
 
-/* IEEE 1588 PTPv2 common header (simplified) */
-typedef struct __attribute__((packed)) {
+// IEEE 1588 PTPv2 common header
+typedef struct {
     uint8_t  msg_type;
     uint8_t  ptp_version;
     uint8_t  msg_len[2];

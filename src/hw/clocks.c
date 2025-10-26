@@ -24,7 +24,7 @@ void init_sysclk(void) {
     // Configure the PLL1 clock source, multiplication and division factors.
     uint32_t PLLSource = (RCC_PLL1CFGR_PLL1SRC_0 | RCC_PLL1CFGR_PLL1SRC_1);
     uint32_t PLLM = 4;
-    uint32_t PLLN = 268;
+    uint32_t PLLN = 250;
     uint32_t PLLP = 2;
     uint32_t PLLQ = 2;
     uint32_t PLLR = 2;

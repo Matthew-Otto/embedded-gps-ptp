@@ -6,8 +6,6 @@ BIN_DIR = ./bin/
 MASTER_SERIAL = 001C00453234511637333934
 SLAVE_SERIAL = 004500243234511637333934
 
-SERIAL ?= $(MASTER_SERIAL)
-
 # UTILITY VARIABLES
 AS = arm-none-eabi-as
 CC = arm-none-eabi-gcc
@@ -23,22 +21,21 @@ MKDIR   = @mkdir -p $(@D) #creates folders if not present
 MCU = -mcpu=cortex-m33 -mthumb -mfloat-abi=hard -mfpu=fpv5-sp-d16
 DEBUG = 1
 OPT = -Og
-LIBS = -lc -lm -lnosys
+LIBS = -lm -lnosys
 LDSCRIPT = $(SRC_DIR)stm32h563.ld
-INC = -I$(SRC_DIR)/inc -I$(SRC_DIR)/hw -I$(SRC_DIR)/network
+INC = -I$(SRC_DIR)/inc -I$(SRC_DIR)/hw -I$(SRC_DIR)/os -I$(SRC_DIR)/network -I$(SRC_DIR)/apps
 
 ASFLAGS = $(MCU) $(OPT)
-CFLAGS = $(MCU) $(OPT) $(INC) -Wall -fdata-sections -ffunction-sections
-LDFLAGS = $(MCU) -specs=nano.specs -T$(LDSCRIPT) $(LIBS) -Wl,-Map=$(BIN_DIR)main.map,--cref -Wl,--gc-sections -Wl,--print-memory-usage
+CFLAGS = $(MCU) -specs=nano.specs $(OPT) $(INC) -Wall -fdata-sections -ffunction-sections
+LDFLAGS = $(MCU) -T$(LDSCRIPT) $(LIBS) -Wl,-Map=$(BIN_DIR)main.map,--cref -Wl,--gc-sections -Wl,--print-memory-usage
 
-CFLAGS += -ffreestanding -nostdlib -fno-builtin
 
 ifeq ($(DEBUG), 1)
 CFLAGS += -g -gdwarf-2
 endif
 
 # Sources
-C_SRCS = $(wildcard $(SRC_DIR)*.c $(SRC_DIR)hw/*.c $(SRC_DIR)network/*.c)
+C_SRCS = $(wildcard $(SRC_DIR)*.c $(SRC_DIR)hw/*.c $(SRC_DIR)os/*.c $(SRC_DIR)network/*.c $(SRC_DIR)apps/*.c)
 S_SRCS = $(wildcard *.s)
 OBJS = $(addprefix $(BUILD_DIR),$(notdir $(C_SRCS:.c=.o)))
 vpath %.c $(sort $(dir $(C_SRCS)))
@@ -58,7 +55,6 @@ $(BUILD_DIR)%.o: %.c Makefile | $(BUILD_DIR)
 
 # Link
 $(TARGET): $(OBJS) $(LDSCRIPT) Makefile | $(BIN_DIR)
-#$(LD) $(OBJS) $(LDFLAGS) -o $@
 	$(CC) $(OBJS) $(LDFLAGS) -o $@
 	$(SZ) $@
 
@@ -77,15 +73,20 @@ $(BIN_DIR):
 	mkdir $@
 
 
+flash: $(BIN)
+	openocd -f interface/stlink-dap.cfg \
+	-f target/stm32h5x.cfg \
+	-c "program $(BIN) verify reset exit 0x08000000"
 
+
+# For multi-board setups
 flash-master:
-	make CFLAGS="$(CFLAGS) -DMASTER" SERIAL="$(MASTER_SERIAL)" flash
+	make CFLAGS="$(CFLAGS) -DMASTER" SERIAL="$(MASTER_SERIAL)" flash-serial
 
 flash-slave:
-	make CFLAGS="$(CFLAGS)" SERIAL="$(SLAVE_SERIAL)" flash
+	make CFLAGS="$(CFLAGS)" SERIAL="$(SLAVE_SERIAL)" flash-serial
 
-
-flash: $(BIN)
+flash-serial: $(BIN)
 	openocd -f interface/stlink-dap.cfg -c "adapter serial $(SERIAL)" \
 	-f target/stm32h5x.cfg \
 	-c "program $(BIN) verify reset exit 0x08000000"

@@ -1,6 +1,7 @@
 bin/
 build/
 settings.json
+docs/
 
 # Object files
 *.o

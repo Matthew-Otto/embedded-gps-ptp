@@ -32,7 +32,7 @@ void configure_pin(GPIO_TypeDef *GPIO_bank, uint16_t pin, uint32_t mode, uint32_
     MODIFY_REG(GPIO_bank->AFR[pin_num >> 3], 0xF << pin_alt_ofst, alternate << pin_alt_ofst);
 };
 
-void configure_button() {
+void configure_button(void) {
     GPIO_TypeDef *GPIO_bank = GPIOC;
     uint16_t pin = GPIO_PIN_13;
     uint32_t pin_num = 0;
@@ -44,6 +44,70 @@ void configure_button() {
     MODIFY_REG(GPIO_bank->OTYPER, 0x1 << pin_num, ((GPIO_MODE_INPUT & GPIO_OUTPUT_TYPE) >> 4U) << pin_num);
     MODIFY_REG(GPIO_bank->PUPDR, 0x3 << pin_mode_ofst, GPIO_PULLDOWN << pin_mode_ofst);
     MODIFY_REG(GPIO_bank->OSPEEDR, 0x3 << pin_mode_ofst, GPIO_SPEED_FREQ_HIGH << pin_mode_ofst);
+}
+
+void enable_LED(enum LED_COLOR color) {
+    switch (color) {
+        case RED_LED:
+            GPIOG->BSRR = (uint32_t)GPIO_PIN_4;
+            break;
+        case YELLOW_LED:
+            GPIOF->BSRR = (uint32_t)GPIO_PIN_4;
+            break;
+        case GREEN_LED:
+            GPIOB->BSRR = (uint32_t)GPIO_PIN_0;
+            break;
+    }
+}
+
+void disable_LED(enum LED_COLOR color) {
+    switch (color) {
+        case RED_LED:
+            GPIOG->BSRR = (uint32_t)GPIO_PIN_4 << 16;
+            break;
+        case YELLOW_LED:
+            GPIOF->BSRR = (uint32_t)GPIO_PIN_4 << 16;
+            break;
+        case GREEN_LED:
+            GPIOB->BSRR = (uint32_t)GPIO_PIN_0 << 16;
+            break;
+    }
+}
+
+void toggle_LED(enum LED_COLOR color) {
+    switch (color) {
+        case RED_LED:
+            if (READ_BIT(GPIOG->ODR, GPIO_PIN_4))
+                disable_LED(RED_LED);
+            else
+                enable_LED(RED_LED);
+            break;
+        case YELLOW_LED:
+            if (READ_BIT(GPIOF->ODR, GPIO_PIN_4))
+                disable_LED(YELLOW_LED);
+            else
+                enable_LED(YELLOW_LED);
+            break;
+        case GREEN_LED:
+            if (READ_BIT(GPIOB->ODR, GPIO_PIN_0))
+                disable_LED(GREEN_LED);
+            else
+                enable_LED(GREEN_LED);
+            break;
+    }
+}
+
+void configure_gps(void) {
+    // PPS
+    configure_pin(GPIOD, GPIO_PIN_7, GPIO_MODE_INPUT, GPIO_NOPULL, GPIO_SPEED_FREQ_VERY_HIGH, 0);
+    // RX
+    configure_pin(GPIOD, GPIO_PIN_6, GPIO_MODE_AF_PP, GPIO_NOPULL, GPIO_SPEED_FREQ_VERY_HIGH, GPIO_AF7_USART2);
+    // TX
+    configure_pin(GPIOD, GPIO_PIN_5, GPIO_MODE_AF_PP, GPIO_NOPULL, GPIO_SPEED_FREQ_VERY_HIGH, GPIO_AF7_USART2);
+    // GND
+    configure_pin(GPIOD, GPIO_PIN_4, GPIO_MODE_OUTPUT_PP, GPIO_NOPULL, GPIO_SPEED_FREQ_LOW, 0);
+    // VCC
+    configure_pin(GPIOD, GPIO_PIN_3, GPIO_MODE_OUTPUT_PP, GPIO_NOPULL, GPIO_SPEED_FREQ_LOW, 0);
 }
 
 
@@ -64,13 +128,7 @@ void GPIO_init() {
     configure_pin(GPIOG, GPIO_PIN_4, GPIO_MODE_OUTPUT_PP, GPIO_NOPULL, GPIO_SPEED_FREQ_LOW, 0);
 
     configure_button();
+    configure_gps();
 
-    GPIO_TypeDef *GPIOx = GPIOF;
-    GPIOx->BSRR = (uint32_t)GPIO_PIN_4;
-
-    GPIOx = GPIOG;
-    GPIOx->BSRR = (uint32_t)GPIO_PIN_4;
-
-    GPIOx = GPIOB;
-    //GPIOx->BSRR = (uint32_t)GPIO_PIN_0;
+    enable_LED(YELLOW_LED);
 }
